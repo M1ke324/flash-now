@@ -23,6 +23,10 @@ Sito statico (GitHub Pages) per quiz e flashcard. Niente build, niente dipendenz
 - `js/parser.js` — parser del formato (condiviso browser/Node)
 - `js/app.js` — interfaccia (router a hash: `#/cartella/…`, `#/mazzo/…`, `#/impostazioni`)
 - `js/scores.js` — punteggi: localStorage + scrittura su `punteggi.json` via API GitHub
+- `js/library.js` — mazzi "Sul dispositivo" (localStorage, id che iniziano con `~`)
+- `js/env.js` — web o app Android, mazzi online con cache offline
+- `fonts/` — font e icone ospitati qui (offline). Per usare una nuova icona Material aggiungila in `scripts/icone.sh` e rilancialo
+- `android/` — app Android: WebView che serve il sito dagli asset (copiati dal task Gradle `copyWeb`); release con un tag `v*`
 - `scripts/build-manifest.mjs` — genera `decks.json` (non versionato, lo genera la GitHub Action)
 - `.github/workflows/pages.yml` — verifica e pubblica a ogni push su `main`
 

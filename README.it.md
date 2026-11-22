@@ -97,7 +97,12 @@ Per modificare il sito con l'AI basta chiederlo in questa cartella ("aggiungi un
 
 L'APK si scarica dalle [Release](https://github.com/M1ke324/studio-quiz/releases/latest): aprilo dal telefono e consenti l'installazione da quella fonte quando Android lo chiede.
 
-L'app (cartella `android/`) è un contenitore leggero che apre il sito: i nuovi mazzi compaiono senza aggiornare l'APK, e punteggi e impostazioni restano salvati nell'app. Serve una connessione internet.
+L'app (cartella `android/`) contiene il sito e **funziona senza connessione e senza repository**:
+
+- **Sul dispositivo**: cartelle e mazzi tuoi, salvati solo nel telefono. Puoi creare cartelle, importare file `.md`, scrivere un mazzo nell'editor o incollare quello generato da un'AI (il pulsante *Copia le istruzioni per l'AI* copia il prompt con il formato). I loro punteggi restano sul dispositivo.
+- **Mazzi online** (facoltativi, si spengono in Impostazioni): i mazzi di questo repository, scaricati quando c'è connessione e conservati per l'uso offline. I nuovi mazzi pubblicati compaiono senza aggiornare l'APK.
+
+La libreria *Sul dispositivo* esiste anche nel sito, nel browser.
 
 **Pubblicare una nuova versione:** crea un tag e fai push.
 
