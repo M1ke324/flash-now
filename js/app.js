@@ -174,6 +174,7 @@ async function viewFolder(folder) {
     <label class="searchbar">${icon('search')}<input type="search" id="search" placeholder="Cerca un mazzo" autocomplete="off" aria-label="Cerca un mazzo"></label>
     <div id="search-results" class="list"></div>` : ''}
     <div id="browse">
+    ${!folder && scores.canSync() && scores.unsynced().length ? `<a class="sync-banner state" href="#/impostazioni">${icon('sync')}<span>${scores.unsynced().length} ${scores.unsynced().length === 1 ? 'sessione da sincronizzare' : 'sessioni da sincronizzare'} con GitHub</span>${icon('chevron_right')}</a>` : ''}
     ${subs.length ? `<div class="subhead title-s">Cartelle</div><div class="list">${subs.map((f) => `
       <a class="item state" href="#/cartella/${encPath(f)}">
         <span class="avatar folder">${icon('folder', 'fill')}</span>
@@ -563,57 +564,71 @@ async function finish() {
   });
 
   if (!opts.record) return;
-  if (!hasToken) {
-    snackbar('Punteggio salvato su questo dispositivo. Aggiungi un token GitHub nelle impostazioni per salvarlo nel repository.');
+  if (!hasToken || !scores.getSettings().autoSync) {
+    snackbar('Punteggio salvato sul dispositivo');
     return;
   }
   const r = await scores.syncAll();
-  snackbar(r.ok ? 'Punteggio salvato nel repository' : `Punteggio salvato solo su questo dispositivo: ${r.errore}. Riprova da Impostazioni.`);
+  snackbar(r.ok ? 'Punteggio salvato e sincronizzato con GitHub' : `Punteggio salvato sul dispositivo. Sincronizzazione non riuscita: ${r.errore}`);
 }
 
 // ---------- impostazioni ----------
 function viewSettings() {
   const s = scores.getSettings();
+  const total = scores.localCount();
   const pending = scores.unsynced().length;
   const field = (name, label, value, extra = '') => `<div class="field"><label for="f-${name}">${label}</label><input id="f-${name}" name="${name}" value="${esc(value)}" autocapitalize="off" autocomplete="off" spellcheck="false" ${extra}></div>`;
   render(`${appbar('Impostazioni', '#/')}
   <main>
     <section class="card">
-      <h2 class="title-l">Salva i punteggi su GitHub</h2>
-      <p class="body-m variant">I punteggi restano sempre in questo browser. Con un token GitHub vengono scritti anche in <code>punteggi.json</code>, nella cartella di ogni mazzo, e li vedi da tutti i dispositivi.</p>
-      <p class="body-m variant">Crea un <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">fine-grained token</a> limitato a questo repository, con il permesso <strong>Contents: Read and write</strong>. Il token resta salvato solo in questo browser.</p>
+      <h2 class="title-l">Punteggi sul dispositivo</h2>
+      <p class="body-m variant">Ogni punteggio viene salvato prima di tutto su questo dispositivo e funziona anche senza GitHub.</p>
+      <div class="list">
+        <div class="item"><span class="avatar folder">${icon('history')}</span>
+          <span class="item-main"><span class="headline">${total} ${total === 1 ? 'sessione salvata' : 'sessioni salvate'}</span>
+          <span class="support">${!s.token ? 'Sincronizzazione con GitHub non configurata' : pending ? `${pending} da sincronizzare con GitHub` : 'Tutto sincronizzato con GitHub'}</span></span>
+        </div>
+      </div>
+    </section>
+    <section class="card">
+      <h2 class="title-l">Sincronizzazione con GitHub</h2>
+      <p class="body-m variant">Facoltativa. Copia i punteggi nel file <code>punteggi.json</code> della cartella di ogni mazzo, così li vedi da tutti i dispositivi e restano nel repository.</p>
+      <p class="body-m variant">Serve un <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">fine-grained token</a> limitato a questo repository, con il permesso <strong>Contents: Read and write</strong>. Il token resta salvato solo su questo dispositivo.</p>
       <form id="gh" class="settings-form">
         ${field('owner', 'Utente o organizzazione', s.owner, 'required')}
         ${field('repo', 'Repository', s.repo, 'required')}
         ${field('branch', 'Branch', s.branch, 'required')}
         ${field('token', 'Token', s.token, 'type="password" placeholder="github_pat_…"')}
+        <label class="setting-row"><span>Sincronizza dopo ogni sessione<br><span class="body-m variant">Se è disattivato, sincronizzi tu con il pulsante qui sotto</span></span><input class="switch" type="checkbox" name="autoSync" ${s.autoSync ? 'checked' : ''}></label>
         <div class="btn-row">
           <button class="btn outlined" type="button" id="test">Prova connessione</button>
           <button class="btn filled" type="submit">Salva</button>
         </div>
       </form>
-    </section>
-    <section class="card">
-      <h2 class="title-l">Sincronizzazione</h2>
-      <p class="body-m variant">${pending ? `${pending} ${pending === 1 ? 'punteggio non è ancora stato salvato' : 'punteggi non sono ancora stati salvati'} nel repository.` : 'Tutti i punteggi sono salvati nel repository.'}</p>
-      <button class="btn tonal" id="sync-now" ${pending ? '' : 'disabled'}>${icon('sync')}Sincronizza ora</button>
+      <div class="btn-col">
+        <button class="btn tonal" id="sync-now" ${pending && s.token ? '' : 'disabled'}>${icon('sync')}${pending ? `Sincronizza ora (${pending})` : 'Sincronizza ora'}</button>
+      </div>
     </section>
   </main>`);
 
-  const read = () => Object.fromEntries(new FormData(document.getElementById('gh')));
+  const read = () => {
+    const f = new FormData(document.getElementById('gh'));
+    return { ...Object.fromEntries(f), autoSync: f.get('autoSync') === 'on' };
+  };
   document.getElementById('gh').addEventListener('submit', (e) => {
     e.preventDefault();
     scores.saveSettings(read());
     snackbar('Impostazioni salvate');
+    viewSettings();
   });
   document.getElementById('test').addEventListener('click', async () => {
     try { snackbar(`Connesso a ${await scores.testConnection(read())}`); } catch (e) { snackbar(`Connessione non riuscita: ${e.message}. Controlla utente, repository e token.`); }
   });
-  document.getElementById('sync-now').addEventListener('click', async () => {
-    scores.saveSettings(read());
+  document.getElementById('sync-now').addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
     const r = await scores.syncAll();
-    snackbar(r.ok ? `${r.inviati} ${r.inviati === 1 ? 'punteggio salvato' : 'punteggi salvati'} nel repository` : `Sincronizzazione non riuscita: ${r.errore}`);
-    if (r.ok) viewSettings();
+    snackbar(r.ok ? `${r.inviati} ${r.inviati === 1 ? 'sessione sincronizzata' : 'sessioni sincronizzate'} con GitHub` : `Sincronizzazione non riuscita: ${r.errore}`);
+    viewSettings();
   });
 }
 

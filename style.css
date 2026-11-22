@@ -354,3 +354,7 @@ main {
 .segmented input:disabled + span { opacity: 0.38; cursor: default; }
 .segmented input:focus-visible + span { outline: 3px solid var(--secondary); outline-offset: -3px; }
 .mode-help { margin: 0 4px 8px; }
+
+.sync-banner { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 12px 16px; border-radius: var(--shape-l); background: var(--tertiary-container); color: var(--on-tertiary-container); text-decoration: none; font-size: 14px; font-weight: 500; }
+.sync-banner span:not(.icon) { flex: 1; }
+.setting-row .variant { display: block; }

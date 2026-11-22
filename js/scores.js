@@ -1,7 +1,8 @@
 // Gestione punteggi.
-// - Ogni risultato viene salvato subito nel browser (localStorage).
-// - Se nelle Impostazioni c'è un token GitHub, viene anche scritto nel file
-//   punteggi.json della cartella del mazzo, direttamente nel repository.
+// - Ogni risultato viene salvato prima di tutto sul dispositivo (localStorage del browser o dell'app).
+// - La sincronizzazione con GitHub è facoltativa: con un token configurato i risultati vengono
+//   scritti nel file punteggi.json della cartella del mazzo, a mano ("Sincronizza ora")
+//   oppure dopo ogni sessione se è attiva la sincronizzazione automatica.
 // - Quando si visualizzano i punteggi si uniscono quelli del repo e quelli locali (per id).
 
 const LS_LOCAL = 'sq.risultati';
@@ -22,6 +23,7 @@ export function getSettings() {
     repo: s.repo || guess.repo || '',
     branch: s.branch || 'main',
     token: s.token || '',
+    autoSync: s.autoSync === true,
   };
 }
 export function saveSettings(s) { writeLS(LS_SETTINGS, s); }
@@ -81,6 +83,9 @@ export function addResult(deck, { punti, totale, durata, modo, risposte }) {
   writeLS(LS_LOCAL, local);
   return r;
 }
+
+export const localCount = () => readLS(LS_LOCAL, []).length;
+export const canSync = () => { const s = getSettings(); return !!(s.token && s.owner && s.repo); };
 
 export function unsynced() {
   const synced = new Set(readLS(LS_SYNCED, []));

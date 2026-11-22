@@ -16,6 +16,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import android.window.OnBackInvokedDispatcher;
 
 /**
@@ -36,12 +37,17 @@ public class MainActivity extends Activity {
 
         web = new WebView(this);
         web.setBackgroundColor(getColor(R.color.surface));
-        setContentView(web);
+        // Il WebView ignora il proprio padding: i margini di sistema vanno applicati a un contenitore.
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(getColor(R.color.surface));
+        root.addView(web, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        setContentView(root);
 
         // Da Android 15 l'app è sempre edge-to-edge: il contenuto non deve finire
         // sotto barra di stato, barra di navigazione e tastiera.
         if (Build.VERSION.SDK_INT >= 35) {
-            web.setOnApplyWindowInsetsListener((v, insets) -> {
+            root.setOnApplyWindowInsetsListener((v, insets) -> {
                 Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
                 Insets ime = insets.getInsets(WindowInsets.Type.ime());
                 v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom));
