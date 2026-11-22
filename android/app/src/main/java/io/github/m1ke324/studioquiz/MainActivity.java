@@ -3,6 +3,7 @@ package io.github.m1ke324.studioquiz;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Insets;
@@ -142,10 +143,16 @@ public class MainActivity extends Activity {
         else web.loadUrl(START);
     }
 
-    // Messaggio dal JavaScript: {"type":"save","name":"...","mime":"...","data":"<base64>"}
+    // Messaggi dal JavaScript:
+    //   {"type":"save","name":"...","mime":"...","data":"<base64>"} -> {"ok":true|false}
+    //   {"type":"paste"} -> {"ok":true,"text":"..."}
     private void onWebMessage(String json, JavaScriptReplyProxy reply) {
         try {
             JSONObject m = new JSONObject(json);
+            if ("paste".equals(m.optString("type"))) {
+                reply.postMessage(clipboardReply().toString());
+                return;
+            }
             if (!"save".equals(m.optString("type"))) return;
             pendingSave = Base64.decode(m.getString("data"), Base64.DEFAULT);
             pendingReply = reply;
@@ -157,6 +164,19 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             reply.postMessage("{\"ok\":false}");
         }
+    }
+
+    private JSONObject clipboardReply() throws org.json.JSONException {
+        JSONObject r = new JSONObject();
+        ClipboardManager cm = getSystemService(ClipboardManager.class);
+        ClipData clip = cm != null ? cm.getPrimaryClip() : null;
+        if (clip == null || clip.getItemCount() == 0) {
+            r.put("ok", true).put("text", "");
+        } else {
+            CharSequence text = clip.getItemAt(0).coerceToText(this);
+            r.put("ok", true).put("text", text != null ? text.toString() : "");
+        }
+        return r;
     }
 
     @SuppressWarnings("deprecation")

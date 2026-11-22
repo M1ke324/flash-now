@@ -1,7 +1,7 @@
 import { parseDeck, normalizeAnswer } from './parser.js';
 import * as scores from './scores.js';
 import * as library from './library.js';
-import { makeZip, readZip, saveFile } from './files.js';
+import { makeZip, readZip, saveFile, readClipboard } from './files.js';
 import { IN_APP, onlineEnabled, setOnlineEnabled, getRemoteText } from './env.js';
 
 const $app = document.getElementById('app');
@@ -159,7 +159,7 @@ async function loadDeck(path) {
 }
 
 // ---------- finestre di dialogo (M3) ----------
-function dialog({ title, text = '', input = null, confirm = 'OK', danger = false }) {
+function dialog({ title, text = '', input = null, choices = null, confirm = 'OK', danger = false }) {
   return new Promise((resolve) => {
     const dlg = document.createElement('dialog');
     dlg.className = 'm3-dialog';
@@ -167,6 +167,8 @@ function dialog({ title, text = '', input = null, confirm = 'OK', danger = false
       <h2 class="headline-s">${esc(title)}</h2>
       ${text ? `<p class="body-m variant">${esc(text)}</p>` : ''}
       ${input !== null ? `<div class="field"><label for="dlg-in">${esc(input)}</label><input id="dlg-in" autocomplete="off" required></div>` : ''}
+      ${choices ? `<div class="choice-list">${choices.map((c, i) => `<label class="choice-row" style="padding-left:${16 + c.depth * 20}px">
+        <input type="radio" name="dlg-choice" value="${esc(c.value)}" ${i === 0 ? 'checked' : ''}><span>${esc(c.label)}</span></label>`).join('')}</div>` : ''}
       <div class="dialog-actions">
         <button class="btn text" value="cancel" formnovalidate>Annulla</button>
         <button class="btn ${danger ? 'text danger' : 'text'}" value="ok">${esc(confirm)}</button>
@@ -175,18 +177,40 @@ function dialog({ title, text = '', input = null, confirm = 'OK', danger = false
     document.body.append(dlg);
     dlg.addEventListener('close', () => {
       const ok = dlg.returnValue === 'ok';
-      const val = input !== null ? dlg.querySelector('input').value.trim() : true;
+      const val = input !== null ? dlg.querySelector('#dlg-in').value.trim()
+        : choices ? dlg.querySelector('[name=dlg-choice]:checked')?.value ?? null : true;
       dlg.remove();
       resolve(ok ? val : null);
     });
     dlg.showModal();
-    dlg.querySelector('input')?.focus();
+    dlg.querySelector('#dlg-in')?.focus();
   });
 }
 
+// Chiede la cartella di destinazione tra quelle "Sul dispositivo" (esclusa quella attuale).
+function pickFolder(exclude) {
+  const folders = manifest.cartelle.filter((f) => library.isLocal(f) && f !== exclude);
+  if (!folders.length) {
+    snackbar('Non ci sono altre cartelle: creane una con "Nuova cartella".');
+    return Promise.resolve(null);
+  }
+  return dialog({
+    title: 'Sposta in',
+    choices: folders.map((f) => ({ value: f, label: folderName(f), depth: f.split('/').length - 1 })),
+    confirm: 'Sposta',
+  });
+}
+
+function moveDecks(paths, folder) {
+  for (const p of paths) scores.renameDeck(p, library.moveDeck(p, folder), folder);
+}
+
 // ---------- router ----------
+let selecting = null; // cartella in cui è attiva la selezione multipla dei mazzi
+
 async function route() {
   const h = decodeURIComponent(location.hash.slice(1) || '/');
+  selecting = null;
   if (session && !h.startsWith('/gioca/')) stopSession();
   try {
     await loadManifest(h === '/');
@@ -219,6 +243,7 @@ async function viewFolder(folder) {
   const lastOf = (d) => results.find((r) => r.mazzo === d.path);
   const back = folder ? (parentOf(folder) ? `#/cartella/${encPath(parentOf(folder))}` : '#/') : null;
   const pending = scores.canSync() ? scores.unsynced().length : 0;
+  const sel = selecting === folder;
 
   render(`${appbar(folderName(folder), back)}
   <main>
@@ -247,13 +272,21 @@ async function viewFolder(folder) {
         ${icon('chevron_right', 'trail')}
       </a>`).join('')}</div>` : ''}
     ${!folder && remoteState === 'error' ? `<p class="offline-note body-m">${icon('cloud_off')}Mazzi online non disponibili senza connessione. I mazzi sul dispositivo funzionano lo stesso.</p>` : ''}
-    ${decks.length ? `<div class="subhead title-s">Mazzi</div><div class="list">${decks.map((d) => deckItem(d, lastOf(d))).join('')}</div>` : ''}
+    ${decks.length ? `<div class="subhead-row"><span class="subhead title-s">Mazzi</span>
+      ${local && !sel ? `<button class="btn text" id="sel-start">${icon('check_box_outline_blank')}Seleziona</button>` : ''}</div>
+      <div class="list">${decks.map((d) => (sel ? selectItem(d) : deckItem(d, lastOf(d)))).join('')}</div>` : ''}
     ${folder && !subs.length && !decks.length ? `<div class="empty">${icon(local ? 'smartphone' : 'folder')}<p>${local
     ? 'Nessun mazzo qui. Creane uno, incolla quello generato da un\'AI oppure importa un file .md.'
     : `Questa cartella è vuota. Aggiungi un file .md in <code>decks/${esc(folder)}</code> per creare un mazzo.`}</p></div>` : ''}
     ${results.length ? `<div class="subhead title-s">Attività recente</div>${resultList(results.slice(0, 6), true)}` : ''}
-    ${local && folder !== library.ROOT ? `<div class="btn-col"><button class="btn text danger" id="del-folder">${icon('delete')}Elimina cartella</button></div>` : ''}
+    ${local && folder !== library.ROOT && !sel ? `<div class="btn-col"><button class="btn text danger" id="del-folder">${icon('delete')}Elimina cartella</button></div>` : ''}
     </div>
+    ${sel ? `<div class="select-bar">
+      <button class="icon-btn state" id="sel-cancel" aria-label="Annulla selezione">${icon('close')}</button>
+      <span id="sel-count" class="label-l">Scegli i mazzi</span>
+      <button class="btn tonal" id="sel-move" disabled>Sposta</button>
+      <button class="btn negative" id="sel-del" disabled>Elimina</button>
+    </div>` : ''}
   </main>`);
 
   document.getElementById('hint-close')?.addEventListener('click', (e) => {
@@ -274,6 +307,42 @@ async function viewFolder(folder) {
     });
   }
   if (!local) return;
+
+  document.getElementById('sel-start')?.addEventListener('click', () => { selecting = folder; viewFolder(folder); });
+  if (sel) {
+    const chosen = () => [...document.querySelectorAll('.sel:checked')].map((c) => c.value);
+    const update = () => {
+      const n = chosen().length;
+      document.getElementById('sel-count').textContent = n ? `${n} ${n === 1 ? 'scelto' : 'scelti'}` : 'Scegli i mazzi';
+      document.getElementById('sel-move').disabled = !n;
+      document.getElementById('sel-del').disabled = !n;
+    };
+    document.querySelectorAll('.sel').forEach((c) => c.addEventListener('change', update));
+    document.getElementById('sel-cancel').addEventListener('click', () => { selecting = null; viewFolder(folder); });
+    document.getElementById('sel-move').addEventListener('click', async () => {
+      const paths = chosen();
+      const to = await pickFolder(folder);
+      if (!to) return;
+      moveDecks(paths, to);
+      selecting = null;
+      await route();
+      snackbar(`${paths.length === 1 ? 'Mazzo spostato' : `${paths.length} mazzi spostati`} in ${folderName(to)}`);
+    });
+    document.getElementById('sel-del').addEventListener('click', async () => {
+      const paths = chosen();
+      const yes = await dialog({
+        title: paths.length === 1 ? 'Eliminare il mazzo?' : `Eliminare ${paths.length} mazzi?`,
+        text: 'Verranno eliminati da questo dispositivo. I punteggi restano nello storico.',
+        confirm: 'Elimina', danger: true,
+      });
+      if (!yes) return;
+      for (const p of paths) library.deleteDeck(p);
+      selecting = null;
+      await route();
+      snackbar(paths.length === 1 ? 'Mazzo eliminato' : `${paths.length} mazzi eliminati`);
+    });
+    return;
+  }
 
   document.getElementById('new-folder').addEventListener('click', async () => {
     const name = await dialog({ title: 'Nuova cartella', input: 'Nome della cartella', confirm: 'Crea' });
@@ -338,6 +407,14 @@ function deckItem(d, last, showFolder = false) {
       <span class="support">${d.n} ${unit(d.tipo, d.n)}${showFolder && d.cartella ? ` in ${esc(folderLabel(d.cartella))}` : ''}</span></span>
     ${last ? `<span class="score-chip ${pctClass(last.percentuale)}">${last.percentuale}%</span>` : icon('chevron_right', 'trail')}
   </a>`;
+}
+
+function selectItem(d) {
+  return `<label class="item state select-item">
+    <input type="checkbox" class="sel" value="${esc(d.path)}" aria-label="Seleziona ${esc(d.titolo)}">
+    <span class="avatar ${d.tipo}">${icon(typeIcon(d.tipo))}</span>
+    <span class="item-main"><span class="headline">${esc(d.titolo)}</span><span class="support">${d.n} ${unit(d.tipo, d.n)}</span></span>
+  </label>`;
 }
 
 function resultList(list, withDeck) {
@@ -421,8 +498,11 @@ function viewEditor({ folder = null, path = null }) {
       <label><input type="radio" name="tpl" value="flashcard" checked><span>${icon('check')}Flashcard</span></label>
       <label><input type="radio" name="tpl" value="quiz"><span>${icon('check')}Quiz</span></label>
     </div>` : ''}
-    <p class="body-m variant">Scrivi il mazzo qui sotto oppure incolla quello generato da un'AI. Per farlo generare, copia le istruzioni per l'AI e aggiungi i tuoi appunti.</p>
-    <button class="btn outlined" id="copy-prompt">Copia le istruzioni per l'AI</button>
+    <p class="body-m variant">Scrivi il mazzo qui sotto, oppure: copia le <strong>istruzioni per l'AI</strong>, incollale in una chat con i tuoi appunti, copia la risposta e tocca <strong>Incolla</strong>.</p>
+    <div class="btn-row editor-tools">
+      <button class="btn outlined" id="copy-prompt">${icon('auto_awesome')}Istruzioni per l'AI</button>
+      <button class="btn tonal" id="paste">${icon('content_paste')}Incolla</button>
+    </div>
     <textarea id="src" class="editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Testo del mazzo">${esc(initial)}</textarea>
     <p id="check" class="check body-m" role="status"></p>
     <div class="btn-row">
@@ -437,6 +517,8 @@ function viewEditor({ folder = null, path = null }) {
   const validate = () => {
     const deck = parseDeck($src.value);
     const n = deck.items.length;
+    const $tpl = document.querySelector(`[name=tpl][value=${deck.type}]`);
+    if ($tpl) $tpl.checked = true; // il selettore segue il tipo scritto nel testo
     $check.className = `check body-m ${deck.errors.length ? 'bad' : 'good'}`;
     $check.innerHTML = deck.errors.length
       ? `${icon('cancel', 'fill')}<span>${deck.errors.map(esc).join('<br>')}</span>`
@@ -455,6 +537,22 @@ function viewEditor({ folder = null, path = null }) {
     touched = false;
     validate();
   }));
+
+  // Incolla: sostituisce tutto il testo (anche il modello di esempio) con il contenuto degli appunti.
+  document.getElementById('paste').addEventListener('click', async () => {
+    let text;
+    try {
+      text = (await readClipboard()).trim();
+    } catch {
+      return snackbar('Non riesco a leggere gli appunti: tieni premuto nell\'editor e scegli Incolla.');
+    }
+    if (!text) return snackbar('Gli appunti sono vuoti: copia prima la risposta dell\'AI.');
+    if (touched && $src.value.trim() && !(await dialog({ title: 'Sostituire il testo?', text: 'Il testo scritto finora verrà sostituito da quello copiato.', confirm: 'Sostituisci' }))) return;
+    $src.value = text.replace(/^```[a-z]*\n([\s\S]*?)\n```$/, '$1') + '\n';
+    touched = true;
+    const deck = validate();
+    snackbar(deck.errors.length ? 'Testo incollato: controlla gli errori segnalati' : `Testo incollato: ${deck.items.length} ${unit(deck.type, deck.items.length)}`);
+  });
 
   document.getElementById('copy-prompt').addEventListener('click', async () => {
     try {
@@ -524,8 +622,9 @@ async function viewDeck(path) {
         <button class="btn filled large" type="submit">${icon('play_arrow', 'fill')}Inizia</button>
       </form>
       ${library.isLocal(path) ? `<div class="btn-row">
-        <a class="btn outlined" href="#/modifica/${encPath(path)}">${icon('edit')}Modifica</a>
-        <button class="btn outlined" id="export-deck">${icon('download')}Esporta</button>
+        <a class="btn outlined" href="#/modifica/${encPath(path)}">Modifica</a>
+        <button class="btn outlined" id="move-deck">Sposta</button>
+        <button class="btn outlined" id="export-deck">Esporta</button>
       </div>
       <div class="btn-col"><button class="btn text danger" id="del-deck">${icon('delete')}Elimina mazzo</button></div>` : ''}
     </section>
@@ -541,6 +640,14 @@ async function viewDeck(path) {
       ${resultList(results.slice(0, 10), false)}` : ''}
   </main>`);
 
+  document.getElementById('move-deck')?.addEventListener('click', async () => {
+    const to = await pickFolder(d.cartella);
+    if (!to) return;
+    const newPath = library.moveDeck(path, to);
+    scores.renameDeck(path, newPath, to);
+    location.replace(`#/mazzo/${encPath(newPath)}`);
+    snackbar(`Spostato in ${folderName(to)}`);
+  });
   document.getElementById('export-deck')?.addEventListener('click', async () => {
     const name = path.split('/').pop();
     if (await saveFile(name, 'text/markdown', library.readDeck(path))) snackbar(`Esportato ${name}`);
@@ -852,9 +959,9 @@ function viewGuide() {
       <h2 class="title-l">${icon('auto_awesome', 'fill')}Crea flashcard con l'AI</h2>
       <ol class="steps">
         <li>Apri <strong>${LOCAL_NAME}</strong> e tocca <strong>Nuovo mazzo</strong>. Scegli <em>Flashcard</em> o <em>Quiz</em>.</li>
-        <li>Tocca <strong>Copia le istruzioni per l'AI</strong>.</li>
+        <li>Tocca <strong>Istruzioni per l'AI</strong>: vengono copiate.</li>
         <li>In ChatGPT, Claude o Gemini incolla le istruzioni, aggiungi sotto i tuoi appunti e invia.</li>
-        <li>Copia la risposta, incollala nell'editor al posto dell'esempio e tocca <strong>Salva</strong>.</li>
+        <li>Copia la risposta, torna all'editor, tocca <strong>Incolla</strong> e poi <strong>Salva</strong>.</li>
       </ol>
       <p class="body-m variant">Il riquadro sotto l'editor diventa verde quando il formato è giusto; se è rosso indica la riga da correggere. Puoi chiedere all'AI quante carte vuoi, per esempio "fammene 20".</p>
       <a class="btn filled" href="#/nuovo/${encPath(library.ROOT)}">${icon('add')}Crea il primo mazzo</a>

@@ -94,6 +94,13 @@ export function addResult(deck, { punti, totale, durata, modo, risposte }) {
 export const localCount = () => readLS(LS_LOCAL, []).length;
 export const canSync = () => { const s = getSettings(); return !!(s.token && s.owner && s.repo); };
 
+// Dopo lo spostamento di un mazzo locale, lo storico segue il nuovo percorso.
+export function renameDeck(from, to, folder) {
+  const local = readLS(LS_LOCAL, []);
+  for (const r of local) if (r.mazzo === from) { r.mazzo = to; r.cartella = folder; }
+  writeLS(LS_LOCAL, local);
+}
+
 export function unsynced() {
   const synced = new Set(readLS(LS_SYNCED, []));
   return readLS(LS_LOCAL, []).filter((r) => !synced.has(r.id) && !isLocal(r.cartella));

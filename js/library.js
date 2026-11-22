@@ -89,6 +89,20 @@ export function saveDeck(text, { path = null, folder = ROOT, name = '', fileName
   return path;
 }
 
+// Sposta un mazzo in un'altra cartella mantenendo il nome del file. Ritorna il nuovo percorso.
+export function moveDeck(path, folder) {
+  const d = load();
+  if (d.mazzi[path] === undefined) throw new Error('Mazzo non trovato.');
+  if (parentOf(path) === folder) return path;
+  const base = path.split('/').pop().replace(/\.md$/, '');
+  let to = `${folder}/${base}.md`;
+  for (let i = 2; d.mazzi[to] !== undefined; i++) to = `${folder}/${base}-${i}.md`;
+  d.mazzi[to] = d.mazzi[path];
+  delete d.mazzi[path];
+  store(d);
+  return to;
+}
+
 export function deleteDeck(path) {
   const d = load();
   delete d.mazzi[path];

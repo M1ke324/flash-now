@@ -120,16 +120,21 @@ function toBase64(bytes) {
   return btoa(bin);
 }
 
-export function saveFile(name, mime, content) {
-  const bytes = typeof content === 'string' ? enc.encode(content) : content;
+// Richiesta al codice nativo dell'app (canale "StudioAndroid"): una alla volta.
+function nativeRequest(msg) {
   const bridge = window.StudioAndroid;
-  if (bridge) {
-    return new Promise((resolve) => {
-      bridge.onmessage = (e) => {
-        try { resolve(JSON.parse(e.data).ok === true); } catch { resolve(false); }
-      };
-      bridge.postMessage(JSON.stringify({ type: 'save', name, mime, data: toBase64(bytes) }));
-    });
+  return new Promise((resolve) => {
+    bridge.onmessage = (e) => {
+      try { resolve(JSON.parse(e.data)); } catch { resolve({ ok: false }); }
+    };
+    bridge.postMessage(JSON.stringify(msg));
+  });
+}
+
+export async function saveFile(name, mime, content) {
+  const bytes = typeof content === 'string' ? enc.encode(content) : content;
+  if (window.StudioAndroid) {
+    return (await nativeRequest({ type: 'save', name, mime, data: toBase64(bytes) })).ok === true;
   }
   const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
   const a = document.createElement('a');
@@ -139,5 +144,15 @@ export function saveFile(name, mime, content) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
-  return Promise.resolve(true);
+  return true;
+}
+
+// Testo degli appunti. Nell'app lo legge il codice nativo (il WebView non lo permette al JavaScript).
+export async function readClipboard() {
+  if (window.StudioAndroid) {
+    const r = await nativeRequest({ type: 'paste' });
+    if (!r.ok) throw new Error('appunti non disponibili');
+    return r.text || '';
+  }
+  return navigator.clipboard.readText();
 }
