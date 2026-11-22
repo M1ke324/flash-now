@@ -267,9 +267,9 @@ main {
   padding: 32px 28px 56px; border-radius: var(--shape-xl); overflow-wrap: anywhere;
   backface-visibility: hidden; -webkit-backface-visibility: hidden;
 }
-.face.front { background: var(--primary-container); color: var(--on-primary-container); }
+.face.front { background: var(--secondary-container); color: var(--on-secondary-container); }
 .face.front .face-content { font-size: 28px; line-height: 36px; font-weight: 500; font-variation-settings: "wdth" 112; }
-.face.back { transform: rotateY(180deg); background: var(--surface-container-highest); color: var(--on-surface); }
+.face.back { transform: rotateY(180deg); background: var(--surface-container-lowest); color: var(--on-surface); border: 1px solid var(--outline-variant); }
 .face.back .face-content { font-size: 20px; line-height: 30px; }
 .face .side { position: absolute; left: 28px; bottom: 20px; display: flex; align-items: center; gap: 8px; font-size: 14px; letter-spacing: 0.1px; opacity: 0.75; }
 .answer-bar { display: flex; gap: 12px; margin-top: 16px; }
