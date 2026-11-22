@@ -119,7 +119,8 @@ Keep the key safe (`~/.android-keys/`): Android only accepts an update signed wi
 3. **Permissions → Repository permissions → Contents: Read and write**.
 4. Paste the token in the site under **⚙︎ Impostazioni** (Settings). Owner and repository are detected automatically.
 
-The token is stored only in that device's browser. Without a token, scores are still kept in the browser; once you add a token, **Sincronizza ora** (Sync now) uploads the backlog. Each save is a commit to `decks/<folder>/punteggi.json`.
+Scores are always saved **on the device first** (browser or app); syncing with GitHub is optional.
+The token is stored only on that device. With a token set up, sync with **Sincronizza ora** (Sync now; the home screen shows how many sessions are pending), or turn on **Sincronizza dopo ogni sessione** (sync after every session). Each sync is a commit to `decks/<folder>/punteggi.json`.
 
 > This repository is public, so decks and scores are public too.
 

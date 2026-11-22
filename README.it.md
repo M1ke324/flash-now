@@ -116,7 +116,8 @@ Conserva la chiave (`~/.android-keys/`): Android accetta un aggiornamento solo s
 3. **Permissions → Repository permissions → Contents: Read and write**.
 4. Incolla il token nel sito, in **⚙︎ Impostazioni** (utente e repository vengono riconosciuti in automatico).
 
-Il token resta salvato solo nel browser di quel dispositivo. Senza token i punteggi restano comunque nel browser; quando poi configuri il token, **Sincronizza ora** invia quelli arretrati. Ogni salvataggio è un commit su `decks/<cartella>/punteggi.json`.
+I punteggi vengono sempre salvati **prima di tutto sul dispositivo** (nel browser o nell'app); la sincronizzazione con GitHub è facoltativa.
+Il token resta salvato solo su quel dispositivo. Con il token configurato sincronizzi con **Sincronizza ora** (la home mostra quante sessioni sono in attesa), oppure attivi **Sincronizza dopo ogni sessione**. Ogni sincronizzazione è un commit su `decks/<cartella>/punteggi.json`.
 
 > Il repository è pubblico: anche mazzi e punteggi sono pubblici.
 
