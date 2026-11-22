@@ -7,6 +7,7 @@ let session = null; // sessione di gioco in corso
 
 // ---------- utilità ----------
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const icon = (name, cls = '') => `<span class="icon ${cls}" aria-hidden="true">${name}</span>`;
 
 // Mini-markdown inline: **grassetto**, *corsivo*, `codice`, ![alt](immagine), a capo.
 function md(text, deckPath = '') {
@@ -32,38 +33,70 @@ const shuffle = (arr) => {
   return a;
 };
 
-const fmtDate = (iso) => new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
-const fmtDur = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`);
-const folderName = (f) => (f ? f.split('/').pop().replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Home');
+function fmtDate(iso) {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(Date.now() - 864e5);
+  const time = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === today.toDateString()) return `oggi, ${time}`;
+  if (d.toDateString() === yesterday.toDateString()) return `ieri, ${time}`;
+  return d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
+}
+const fmtDur = (s) => (s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`);
+const folderName = (f) => (f ? f.split('/').pop().replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Studio');
 const pctClass = (p) => (p >= 80 ? 'good' : p >= 50 ? 'mid' : 'bad');
-const typeLabel = (t) => (t === 'quiz' ? 'Quiz' : 'Flashcard');
+const typeIcon = (t) => (t === 'quiz' ? 'quiz' : 'style');
+const unit = (t, n) => (t === 'quiz' ? (n === 1 ? 'domanda' : 'domande') : (n === 1 ? 'carta' : 'carte'));
 const encPath = (p) => p.split('/').map(encodeURIComponent).join('/');
 const go = (hash) => { location.hash = hash; };
 
 function render(html) {
   $app.innerHTML = html;
   window.scrollTo(0, 0);
+  onScroll();
 }
 
-function header(title, back) {
-  return `<header class="top">
-    ${back ? `<a class="back" href="${back}" aria-label="Indietro">‹</a>` : '<span class="logo">📚</span>'}
-    <h1>${esc(title)}</h1>
-    <a class="icon" href="#/impostazioni" aria-label="Impostazioni">⚙︎</a>
+// top app bar: cambia colore quando il contenuto scorre sotto
+function onScroll() {
+  document.querySelector('.appbar')?.classList.toggle('scrolled', window.scrollY > 4);
+}
+window.addEventListener('scroll', onScroll, { passive: true });
+
+function appbar(title, back) {
+  return `<header class="appbar">
+    ${back
+    ? `<a class="icon-btn state" href="${back}" aria-label="Indietro">${icon('arrow_back')}</a><h1 class="title-l">${esc(title)}</h1>`
+    : `<div class="brand">${icon('school', 'fill')}</div><h1 class="title-l"></h1>`}
+    <a class="icon-btn state" href="#/impostazioni" aria-label="Impostazioni">${icon('settings')}</a>
   </header>`;
+}
+
+let snackTimer;
+function snackbar(text) {
+  let el = document.querySelector('.snackbar');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'snackbar';
+    el.setAttribute('role', 'status');
+    document.body.append(el);
+  }
+  el.textContent = text;
+  requestAnimationFrame(() => el.classList.add('show'));
+  clearTimeout(snackTimer);
+  snackTimer = setTimeout(() => el.classList.remove('show'), 4500);
 }
 
 async function loadManifest() {
   if (manifest) return manifest;
   const r = await fetch('decks.json', { cache: 'no-cache' });
-  if (!r.ok) throw new Error('decks.json non trovato. Esegui "node scripts/build-manifest.mjs".');
+  if (!r.ok) throw new Error('Manca decks.json. Generalo con "node scripts/build-manifest.mjs" e ricarica la pagina.');
   manifest = await r.json();
   return manifest;
 }
 
 async function loadDeck(path) {
   const r = await fetch(path, { cache: 'no-cache' });
-  if (!r.ok) throw new Error(`Impossibile caricare ${path}`);
+  if (!r.ok) throw new Error(`Non riesco a caricare ${path} (HTTP ${r.status}).`);
   return parseDeck(await r.text());
 }
 
@@ -79,7 +112,7 @@ async function route() {
     if (h === '/impostazioni') return viewSettings();
     return viewFolder('');
   } catch (e) {
-    render(`${header('Errore', '#/')}<main><div class="card error">${esc(e.message)}</div></main>`);
+    render(`${appbar('Errore', '#/')}<main><div class="card error">${esc(e.message)}</div></main>`);
   }
 }
 window.addEventListener('hashchange', route);
@@ -88,36 +121,30 @@ window.addEventListener('hashchange', route);
 async function viewFolder(folder) {
   const m = manifest;
   if (folder && !m.cartelle.includes(folder)) return go('#/');
-  const parent = folder.includes('/') ? folder.slice(0, folder.lastIndexOf('/')) : '';
-  const subs = m.cartelle.filter((f) => f && (f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '') === folder);
+  const parentOf = (f) => (f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '');
+  const subs = m.cartelle.filter((f) => f && parentOf(f) === folder);
   const decks = m.mazzi.filter((d) => d.cartella === folder);
   const countIn = (f) => m.mazzi.filter((d) => d.cartella === f || d.cartella.startsWith(f + '/')).length;
 
   const results = await scores.folderResults(folder);
   const lastOf = (d) => results.find((r) => r.mazzo === d.path);
+  const back = folder ? (parentOf(folder) ? `#/cartella/${encPath(parentOf(folder))}` : '#/') : null;
 
-  const crumbs = folder
-    ? `<nav class="crumbs"><a href="#/">Home</a>${folder.split('/').map((p, i, a) => {
-      const f = a.slice(0, i + 1).join('/');
-      return ` / ${i === a.length - 1 ? `<span>${esc(p)}</span>` : `<a href="#/cartella/${encPath(f)}">${esc(p)}</a>`}`;
-    }).join('')}</nav>`
-    : '';
-
-  render(`${header(folderName(folder), folder ? (parent ? `#/cartella/${encPath(parent)}` : '#/') : null)}
+  render(`${appbar(folderName(folder), back)}
   <main>
-    ${crumbs}
-    ${!folder ? `<input type="search" id="search" class="search" placeholder="Cerca tra tutti i mazzi…" autocomplete="off">
+    ${!folder ? `<h2 class="home-title">Cosa ripassi oggi?</h2>
+    <label class="searchbar">${icon('search')}<input type="search" id="search" placeholder="Cerca un mazzo" autocomplete="off" aria-label="Cerca un mazzo"></label>
     <div id="search-results" class="list"></div>` : ''}
     <div id="browse">
-    ${subs.length ? `<h2>Cartelle</h2><div class="list">${subs.map((f) => `
-      <a class="row" href="#/cartella/${encPath(f)}">
-        <span class="row-icon">📁</span>
-        <span class="row-main"><strong>${esc(folderName(f))}</strong><small>${countIn(f)} mazzi</small></span>
-        <span class="chev">›</span>
+    ${subs.length ? `<div class="subhead title-s">Cartelle</div><div class="list">${subs.map((f) => `
+      <a class="item state" href="#/cartella/${encPath(f)}">
+        <span class="avatar folder">${icon('folder', 'fill')}</span>
+        <span class="item-main"><span class="headline">${esc(folderName(f))}</span><span class="support">${countIn(f)} ${countIn(f) === 1 ? 'mazzo' : 'mazzi'}</span></span>
+        ${icon('chevron_right', 'trail')}
       </a>`).join('')}</div>` : ''}
-    ${decks.length ? `<h2>Mazzi</h2><div class="list">${decks.map((d) => deckRow(d, lastOf(d))).join('')}</div>` : ''}
-    ${!subs.length && !decks.length ? '<p class="muted center">Nessun mazzo qui. Aggiungi file .md nella cartella <code>decks/</code>.</p>' : ''}
-    ${results.length ? `<h2>Ultimi punteggi in questa cartella</h2>${resultsTable(results.slice(0, 8), true)}` : ''}
+    ${decks.length ? `<div class="subhead title-s">Mazzi</div><div class="list">${decks.map((d) => deckItem(d, lastOf(d))).join('')}</div>` : ''}
+    ${!subs.length && !decks.length ? `<div class="empty">${icon('folder')}<p>Questa cartella è vuota. Aggiungi un file .md in <code>decks/${esc(folder)}</code> per creare un mazzo.</p></div>` : ''}
+    ${results.length ? `<div class="subhead title-s">Attività recente</div>${resultList(results.slice(0, 6), true)}` : ''}
     </div>
   </main>`);
 
@@ -128,32 +155,33 @@ async function viewFolder(folder) {
       const $r = document.getElementById('search-results');
       document.getElementById('browse').hidden = !!q;
       $r.innerHTML = q
-        ? m.mazzi.filter((d) => normalizeAnswer(`${d.titolo} ${d.descrizione} ${d.cartella}`).includes(q)).map((d) => deckRow(d, null, true)).join('')
-          || '<p class="muted center">Nessun risultato</p>'
+        ? m.mazzi.filter((d) => normalizeAnswer(`${d.titolo} ${d.descrizione} ${d.cartella}`).includes(q)).map((d) => deckItem(d, null, true)).join('')
+          || `<div class="empty">${icon('search')}<p>Nessun mazzo contiene “${esc($s.value)}”.</p></div>`
         : '';
     });
   }
 }
 
-function deckRow(d, last, showFolder = false) {
-  return `<a class="row" href="#/mazzo/${encPath(d.path)}">
-    <span class="row-icon">${d.tipo === 'quiz' ? '❓' : '🃏'}</span>
-    <span class="row-main"><strong>${esc(d.titolo)}</strong>
-      <small>${typeLabel(d.tipo)} · ${d.n} ${d.tipo === 'quiz' ? 'domande' : 'carte'}${showFolder && d.cartella ? ` · ${esc(d.cartella)}` : ''}</small></span>
-    ${last ? `<span class="pill ${pctClass(last.percentuale)}">${last.percentuale}%</span>` : ''}
-    <span class="chev">›</span>
+function deckItem(d, last, showFolder = false) {
+  return `<a class="item state" href="#/mazzo/${encPath(d.path)}">
+    <span class="avatar ${d.tipo}">${icon(typeIcon(d.tipo))}</span>
+    <span class="item-main"><span class="headline">${esc(d.titolo)}</span>
+      <span class="support">${d.n} ${unit(d.tipo, d.n)}${showFolder && d.cartella ? ` in ${esc(d.cartella)}` : ''}</span></span>
+    ${last ? `<span class="score-chip ${pctClass(last.percentuale)}">${last.percentuale}%</span>` : icon('chevron_right', 'trail')}
   </a>`;
 }
 
-function resultsTable(list, withDeck) {
+function resultList(list, withDeck) {
   const title = (p) => manifest.mazzi.find((d) => d.path === p)?.titolo || p.split('/').pop();
-  return `<div class="table-wrap"><table class="results">
-    <thead><tr><th>Data</th>${withDeck ? '<th>Mazzo</th>' : ''}<th>Punti</th><th>Tempo</th></tr></thead>
-    <tbody>${list.map((r) => `<tr>
-      <td>${fmtDate(r.data)}</td>
-      ${withDeck ? `<td>${esc(title(r.mazzo))}</td>` : ''}
-      <td><span class="pill ${pctClass(r.percentuale)}">${r.punti}/${r.totale}</span></td>
-      <td>${fmtDur(r.durata || 0)}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<div class="list">${list.map((r) => `
+    <div class="item">
+      <span class="score-chip ${pctClass(r.percentuale)}">${r.percentuale}%</span>
+      <span class="item-main">
+        <span class="headline">${withDeck ? esc(title(r.mazzo)) : `${r.punti} su ${r.totale}`}</span>
+        <span class="support">${withDeck ? `${r.punti} su ${r.totale}, ` : ''}${fmtDur(r.durata || 0)}</span>
+      </span>
+      <span class="trail-text">${fmtDate(r.data)}</span>
+    </div>`).join('')}</div>`;
 }
 
 // ---------- vista mazzo ----------
@@ -165,30 +193,34 @@ async function viewDeck(path) {
   const isQuiz = deck.type === 'quiz';
   const n = deck.items.length;
   const counts = [5, 10, 20, 30, 50].filter((c) => c < n);
+  const chartData = results.slice(0, 20).reverse();
 
-  render(`${header(d.titolo, d.cartella ? `#/cartella/${encPath(d.cartella)}` : '#/')}
+  render(`${appbar(d.cartella ? folderName(d.cartella) : 'Studio', d.cartella ? `#/cartella/${encPath(d.cartella)}` : '#/')}
   <main>
-    <section class="card hero">
-      <span class="badge">${typeLabel(deck.type)}</span>
-      <h2>${esc(d.titolo)}</h2>
-      ${deck.description ? `<p>${md(deck.description, path)}</p>` : ''}
-      <div class="stats">
-        <div><b>${n}</b><small>${isQuiz ? 'domande' : 'carte'}</small></div>
-        <div><b>${results.length}</b><small>tentativi</small></div>
-        <div><b>${best >= 0 ? best + '%' : '–'}</b><small>migliore</small></div>
-        <div><b>${results[0] ? results[0].percentuale + '%' : '–'}</b><small>ultimo</small></div>
+    <section class="card deck-hero">
+      <div class="deck-type label-l">${icon(typeIcon(deck.type))}${isQuiz ? 'Quiz' : 'Flashcard'}</div>
+      <h2 class="headline-m">${esc(d.titolo)}</h2>
+      ${deck.description ? `<p class="body-m">${md(deck.description, path)}</p>` : ''}
+      <div class="chips">
+        <span class="chip">${icon(isQuiz ? 'help' : 'style')}${n} ${unit(deck.type, n)}</span>
+        ${results.length ? `<span class="chip">${icon('history')}${results.length} ${results.length === 1 ? 'tentativo' : 'tentativi'}</span>
+        <span class="chip">${icon('check')}migliore ${best}%</span>` : ''}
       </div>
-      ${deck.errors.length ? `<div class="error small">Problemi nel file:<br>${deck.errors.map(esc).join('<br>')}</div>` : ''}
-      <form id="start" class="options">
-        <label>Quante ${isQuiz ? 'domande' : 'carte'}
-          <select name="count">${counts.map((c) => `<option value="${c}">${c}</option>`).join('')}<option value="${n}" selected>Tutte (${n})</option></select>
-        </label>
-        <label class="check"><input type="checkbox" name="shuffle" ${deck.shuffle ? 'checked' : ''}> Ordine casuale</label>
-        ${!isQuiz ? '<label class="check"><input type="checkbox" name="reverse"> Inverti fronte/retro</label>' : ''}
-        <button class="btn primary big" type="submit">▶ Inizia</button>
+      ${deck.errors.length ? `<div class="warn body-m"><strong>Il file contiene errori:</strong><br>${deck.errors.map(esc).join('<br>')}</div>` : ''}
+      <form id="start" class="settings-form">
+        <div class="field">
+          <label for="count">${isQuiz ? 'Domande' : 'Carte'} per sessione</label>
+          <select id="count" name="count">${counts.map((c) => `<option value="${c}">${c}</option>`).join('')}<option value="${n}" selected>Tutte (${n})</option></select>
+          ${icon('arrow_drop_down')}
+        </div>
+        <label class="setting-row"><span>Ordine casuale</span><input class="switch" type="checkbox" name="shuffle" ${deck.shuffle ? 'checked' : ''}></label>
+        ${!isQuiz ? '<label class="setting-row"><span>Mostra prima la risposta</span><input class="switch" type="checkbox" name="reverse"></label>' : ''}
+        <button class="btn filled large" type="submit">${icon('play_arrow', 'fill')}Inizia</button>
       </form>
     </section>
-    ${results.length ? `<h2>Storico</h2>${resultsTable(results.slice(0, 20), false)}` : ''}
+    ${results.length ? `<div class="subhead title-s">Andamento</div>
+      <div class="chart" aria-label="Percentuali degli ultimi ${chartData.length} tentativi">${chartData.map((r) => `<span class="${pctClass(r.percentuale)}" style="height:${Math.max(4, r.percentuale)}%" title="${r.percentuale}%"></span>`).join('')}</div>
+      ${resultList(results.slice(0, 10), false)}` : ''}
   </main>`);
 
   document.getElementById('start').addEventListener('submit', (ev) => {
@@ -221,14 +253,16 @@ function setKeys(fn) {
 }
 
 function progress(done, total) {
-  return `<div class="progress"><div style="width:${total ? (done / total) * 100 : 0}%"></div></div>`;
+  const pct = total ? (done / total) * 100 : 0;
+  return `<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}">
+    ${pct > 0 ? `<div class="bar" style="width:${pct}%"></div>` : ''}${pct < 100 ? '<div class="track"></div>' : ''}</div>`;
 }
 
 // ----- flashcard -----
 function runFlashcards() {
   const s = session;
   s.queue = s.items.map((it, i) => ({ it, i }));
-  s.firstTry = new Map(); // indice -> true/false (sapevo al primo colpo?)
+  s.firstTry = new Map(); // indice -> sapevo al primo colpo?
   s.total = s.items.length;
   showCard();
 }
@@ -241,21 +275,21 @@ function showCard() {
   const known = [...s.firstTry.values()].filter(Boolean).length;
   const done = s.total - new Set(s.queue.map((x) => x.i)).size;
 
-  render(`${header(s.d.titolo, `#/mazzo/${encPath(s.d.path)}`)}
+  render(`${appbar(s.d.titolo, `#/mazzo/${encPath(s.d.path)}`)}
   <main class="play">
     ${progress(done, s.total)}
-    <p class="muted center small">${done}/${s.total} completate · ${known} sapute al primo colpo${s.queue.length > s.total - done ? ` · ${s.queue.length} in coda` : ''}</p>
+    <div class="status body-m"><span>${done} di ${s.total} completate</span><span>${known} sapute</span></div>
     <div class="flip" id="flip" tabindex="0" role="button" aria-label="Gira la carta">
       <div class="flip-inner">
-        <div class="face front"><div class="face-content">${md(front, s.d.path)}</div><small class="hint">Tocca per girare</small></div>
-        <div class="face back"><div class="face-content">${md(back, s.d.path)}</div></div>
+        <div class="face front"><div class="face-content">${md(front, s.d.path)}</div><span class="side">${icon('touch_app')}Tocca per girare</span></div>
+        <div class="face back"><div class="face-content">${md(back, s.d.path)}</div><span class="side">${icon('visibility')}Risposta</span></div>
       </div>
     </div>
-    <div class="actions" id="actions" hidden>
-      <button class="btn bad" id="no">✗ Da ripassare</button>
-      <button class="btn good" id="yes">✓ La sapevo</button>
+    <div class="answer-bar" id="actions" hidden>
+      <button class="btn negative large" id="no">${icon('replay')}Da ripassare</button>
+      <button class="btn filled large" id="yes">${icon('check')}La sapevo</button>
     </div>
-    <div class="actions" id="reveal-wrap"><button class="btn primary" id="reveal">Mostra risposta</button></div>
+    <div class="answer-bar" id="reveal-wrap"><button class="btn tonal large" id="reveal">${icon('visibility')}Mostra risposta</button></div>
   </main>`);
 
   const $flip = document.getElementById('flip');
@@ -296,29 +330,32 @@ function showQuestion() {
   if (s.idx >= s.items.length) return finish();
   const it = s.items[s.idx];
   const correctSoFar = s.answers.filter((a) => a.ok).length;
-  const hint = it.kind === 'multi' ? 'Seleziona tutte le risposte corrette' : it.kind === 'open' ? 'Scrivi la risposta' : '';
+  const hint = it.kind === 'multi' ? 'Seleziona tutte le risposte corrette' : it.kind === 'open' ? 'Scrivi la risposta' : 'Scegli una risposta';
+  const off = it.kind === 'multi' ? 'check_box_outline_blank' : 'radio_button_unchecked';
+  const on = it.kind === 'multi' ? 'check_box' : 'radio_button_checked';
 
-  render(`${header(s.d.titolo, `#/mazzo/${encPath(s.d.path)}`)}
+  render(`${appbar(s.d.titolo, `#/mazzo/${encPath(s.d.path)}`)}
   <main class="play">
     ${progress(s.idx, s.items.length)}
-    <p class="muted center small">Domanda ${s.idx + 1} di ${s.items.length} · ${correctSoFar} corrette</p>
-    <section class="card question">
+    <div class="status body-m"><span>Domanda ${s.idx + 1} di ${s.items.length}</span><span>${correctSoFar} corrette</span></div>
+    <section class="question">
       <div class="q-text">${md(it.q, s.d.path)}</div>
-      ${hint ? `<p class="muted small">${hint}</p>` : ''}
+      <p class="hint body-m">${hint}</p>
       ${it.kind === 'open'
-    ? `<form id="open"><input class="answer" name="a" autocomplete="off" autocapitalize="off" placeholder="La tua risposta"></form>`
-    : `<div class="choices">${it.shown.map((o, i) => `<button class="choice" data-i="${i}"><span class="key">${String.fromCharCode(65 + i)}</span><span>${md(o.text, s.d.path)}</span></button>`).join('')}</div>`}
+    ? `<form id="open" class="field"><label for="answer">La tua risposta</label><input id="answer" class="answer" name="a" autocomplete="off" autocapitalize="off" enterkeyhint="done"></form>`
+    : `<div class="choices">${it.shown.map((o, i) => `<button class="choice state" data-i="${i}">${icon(off)}<span>${md(o.text, s.d.path)}</span></button>`).join('')}</div>`}
       <div id="feedback"></div>
     </section>
-    <div class="actions">
-      ${it.kind !== 'single' ? '<button class="btn primary" id="check">Verifica</button>' : ''}
-      <button class="btn primary" id="next" hidden>${s.idx + 1 < s.items.length ? 'Avanti →' : 'Vedi risultato'}</button>
+    <div class="footer-actions">
+      ${it.kind !== 'single' ? `<button class="btn filled large" id="check">${icon('check')}Verifica</button>` : ''}
+      <button class="btn filled large trailing" id="next" hidden>${s.idx + 1 < s.items.length ? 'Prossima domanda' : 'Vedi il risultato'}${icon('arrow_forward')}</button>
     </div>
   </main>`);
 
   const $choices = [...document.querySelectorAll('.choice')];
   const $check = document.getElementById('check');
   const $next = document.getElementById('next');
+  const setIcon = (c, name) => { c.querySelector('.icon').textContent = name; };
   let checked = false;
 
   const check = () => {
@@ -326,12 +363,11 @@ function showQuestion() {
     let ok;
     let given;
     if (it.kind === 'open') {
-      const v = document.querySelector('.answer').value;
-      if (!v.trim()) return;
-      given = v;
-      ok = it.accepted.some((a) => normalizeAnswer(a) === normalizeAnswer(v));
-      document.querySelector('.answer').classList.add(ok ? 'right' : 'wrong');
-      document.querySelector('.answer').readOnly = true;
+      const $a = document.querySelector('.answer');
+      if (!$a.value.trim()) return;
+      given = $a.value;
+      ok = it.accepted.some((a) => normalizeAnswer(a) === normalizeAnswer($a.value));
+      $a.readOnly = true;
     } else {
       const sel = $choices.filter((c) => c.classList.contains('selected')).map((c) => Number(c.dataset.i));
       if (!sel.length) return;
@@ -339,27 +375,33 @@ function showQuestion() {
       ok = it.shown.every((o, i) => o.correct === sel.includes(i));
       $choices.forEach((c, i) => {
         c.disabled = true;
-        if (it.shown[i].correct) c.classList.add('right');
-        else if (sel.includes(i)) c.classList.add('wrong');
+        c.classList.remove('selected');
+        if (it.shown[i].correct) { c.classList.add('right'); setIcon(c, 'check_circle'); }
+        else if (sel.includes(i)) { c.classList.add('wrong'); setIcon(c, 'cancel'); }
       });
     }
     checked = true;
     s.answers.push({ it, ok, given });
-    const correctText = it.kind === 'open' ? it.accepted[0] : it.shown.filter((o) => o.correct).map((o) => o.text).join(' · ');
-    document.getElementById('feedback').innerHTML = `<div class="feedback ${ok ? 'good' : 'bad'}">
-      <strong>${ok ? '✓ Corretto!' : '✗ Sbagliato'}</strong>
-      ${!ok && it.kind === 'open' ? `<div>Risposta: ${md(correctText, s.d.path)}</div>` : ''}
-      ${it.e ? `<div class="expl">${md(it.e, s.d.path)}</div>` : ''}
+    document.getElementById('feedback').innerHTML = `<div class="feedback ${ok ? 'good' : 'bad'}" role="status">
+      ${icon(ok ? 'check_circle' : 'cancel', 'fill')}
+      <div>
+        <strong>${ok ? 'Corretto' : 'Sbagliato'}</strong>
+        ${!ok && it.kind === 'open' ? `<span>Risposta giusta: ${md(it.accepted[0], s.d.path)}</span>` : ''}
+        ${it.e ? `<span class="expl body-m">${md(it.e, s.d.path)}</span>` : ''}
+      </div>
     </div>`;
     if ($check) $check.hidden = true;
     $next.hidden = false;
-    $next.focus();
+    $next.focus({ preventScroll: true });
+    document.getElementById('feedback').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
   const next = () => { if (checked) { s.idx++; showQuestion(); } };
 
   $choices.forEach((c) => c.addEventListener('click', () => {
     if (checked) return;
-    if (it.kind === 'single') { c.classList.add('selected'); check(); } else c.classList.toggle('selected');
+    if (it.kind === 'single') { c.classList.add('selected'); check(); return; }
+    c.classList.toggle('selected');
+    setIcon(c, c.classList.contains('selected') ? on : off);
   }));
   $check?.addEventListener('click', check);
   $next.addEventListener('click', next);
@@ -376,6 +418,17 @@ function showQuestion() {
 }
 
 // ----- fine sessione -----
+// Forma "cookie" a 9 lobi della libreria di forme M3 Expressive.
+function cookiePath(lobes = 9, depth = 0.07) {
+  const pts = [];
+  for (let k = 0; k <= 180; k++) {
+    const t = (k / 180) * Math.PI * 2;
+    const r = 50 * (1 - depth + depth * Math.cos(lobes * t));
+    pts.push(`${(50 + r * Math.cos(t)).toFixed(2)},${(50 + r * Math.sin(t)).toFixed(2)}`);
+  }
+  return `M${pts.join('L')}Z`;
+}
+
 async function finish() {
   const s = session;
   setKeys(null);
@@ -384,37 +437,35 @@ async function finish() {
   const punti = isQuiz ? s.answers.filter((a) => a.ok).length : [...s.firstTry.values()].filter(Boolean).length;
   const totale = isQuiz ? s.answers.length : s.total;
   const pct = totale ? Math.round((punti / totale) * 100) : 0;
-  const wrongItems = isQuiz ? s.answers.filter((a) => !a.ok).map((a) => a.it) : s.items.filter((_, i) => !s.firstTry.get(i));
+  const wrongAnswers = isQuiz ? s.answers.filter((a) => !a.ok) : [];
+  const wrongItems = isQuiz ? wrongAnswers.map((a) => a.it) : s.items.filter((_, i) => !s.firstTry.get(i));
+  const hasToken = !!scores.getSettings().token;
 
-  let syncMsg = '';
-  if (s.opts.record) {
-    scores.addResult(s.d, { punti, totale, durata });
-    syncMsg = scores.getSettings().token ? '<span id="sync">Salvataggio nel repository…</span>' : 'Punteggio salvato su questo dispositivo. <a href="#/impostazioni">Configura GitHub</a> per salvarlo nel repository.';
-  } else {
-    syncMsg = 'Ripasso degli errori: il punteggio non viene registrato.';
-  }
+  if (s.opts.record) scores.addResult(s.d, { punti, totale, durata });
 
   const d = s.d;
   const deck = s.deck;
   const opts = s.opts;
-  render(`${header(d.titolo, `#/mazzo/${encPath(d.path)}`)}
+  const msg = pct === 100 ? 'Tutto giusto.' : pct >= 80 ? 'Ci sei quasi.' : pct >= 50 ? 'Buona base, ripassa gli errori.' : 'Da ripassare con calma.';
+  render(`${appbar(d.titolo, `#/mazzo/${encPath(d.path)}`)}
   <main>
-    <section class="card hero center">
-      <div class="score ${pctClass(pct)}">${pct}%</div>
-      <p><strong>${punti}/${totale}</strong> ${isQuiz ? 'risposte corrette' : 'carte sapute al primo colpo'} · ${fmtDur(durata)}</p>
-      <p class="muted small">${syncMsg}</p>
-      <div class="actions col">
-        ${wrongItems.length ? '<button class="btn primary" id="retry-wrong">Ripassa solo gli errori</button>' : ''}
-        <button class="btn" id="retry">Ricomincia</button>
-        <a class="btn" href="#/mazzo/${encPath(d.path)}">Torna al mazzo</a>
+    <section class="result">
+      <div class="cookie ${pctClass(pct)}"><svg viewBox="0 0 100 100" aria-hidden="true"><path d="${cookiePath()}"/></svg><span class="pct">${pct}%</span></div>
+      <h2 class="headline-m">${msg}</h2>
+      <p class="variant">${punti} su ${totale} ${isQuiz ? 'risposte corrette' : 'carte sapute al primo colpo'}, in ${fmtDur(durata)}</p>
+      ${!opts.record ? '<p class="variant body-m">Il ripasso degli errori non viene registrato nello storico.</p>' : ''}
+      <div class="btn-col">
+        ${wrongItems.length ? `<button class="btn filled large" id="retry-wrong">${icon('replay')}Ripassa ${wrongItems.length === 1 ? "l'errore" : `i ${wrongItems.length} errori`}</button>` : ''}
+        <button class="btn tonal large" id="retry">${icon('refresh')}Ricomincia</button>
+        <a class="btn text" href="#/mazzo/${encPath(d.path)}">Torna al mazzo</a>
       </div>
     </section>
-    ${isQuiz && wrongItems.length ? `<h2>Da rivedere</h2>${s.answers.filter((a) => !a.ok).map((a) => `
+    ${wrongAnswers.length ? `<div class="subhead title-s">Da rivedere</div>${wrongAnswers.map((a) => `
       <div class="card review">
         <div class="q-text">${md(a.it.q, d.path)}</div>
-        <p class="small"><span class="bad-text">Tua risposta:</span> ${md(a.given, d.path)}</p>
-        <p class="small"><span class="good-text">Corretta:</span> ${md(a.it.kind === 'open' ? a.it.accepted[0] : a.it.options.filter((o) => o.correct).map((o) => o.text).join(' · '), d.path)}</p>
-        ${a.it.e ? `<p class="small muted">${md(a.it.e, d.path)}</p>` : ''}
+        <p class="body-m"><span class="tag-bad">Hai risposto:</span> ${md(a.given, d.path)}</p>
+        <p class="body-m"><span class="tag-good">Corretta:</span> ${md(a.it.kind === 'open' ? a.it.accepted[0] : a.it.options.filter((o) => o.correct).map((o) => o.text).join(', '), d.path)}</p>
+        ${a.it.e ? `<p class="body-m variant">${md(a.it.e, d.path)}</p>` : ''}
       </div>`).join('')}` : ''}
   </main>`);
   stopSession();
@@ -425,59 +476,58 @@ async function finish() {
     startSession(d, deck, (opts.shuffle ? shuffle(items) : items).slice(0, totale), { ...opts, record: true });
   });
 
-  if (opts.record && scores.getSettings().token) {
-    const r = await scores.syncAll();
-    const $s = document.getElementById('sync');
-    if ($s) $s.textContent = r.ok ? 'Punteggio salvato nel repository ✓' : `Salvato solo su questo dispositivo (errore: ${r.errore}). Riproverà alla prossima sincronizzazione.`;
+  if (!opts.record) return;
+  if (!hasToken) {
+    snackbar('Punteggio salvato su questo dispositivo. Aggiungi un token GitHub nelle impostazioni per salvarlo nel repository.');
+    return;
   }
+  const r = await scores.syncAll();
+  snackbar(r.ok ? 'Punteggio salvato nel repository' : `Punteggio salvato solo su questo dispositivo: ${r.errore}. Riprova da Impostazioni.`);
 }
 
 // ---------- impostazioni ----------
 function viewSettings() {
   const s = scores.getSettings();
   const pending = scores.unsynced().length;
-  render(`${header('Impostazioni', '#/')}
+  const field = (name, label, value, extra = '') => `<div class="field"><label for="f-${name}">${label}</label><input id="f-${name}" name="${name}" value="${esc(value)}" autocapitalize="off" autocomplete="off" spellcheck="false" ${extra}></div>`;
+  render(`${appbar('Impostazioni', '#/')}
   <main>
     <section class="card">
-      <h2>Salvataggio punteggi su GitHub</h2>
-      <p class="small muted">I punteggi vengono sempre salvati nel browser. Inserendo un token GitHub vengono anche scritti
-        nel file <code>punteggi.json</code> della cartella di ogni mazzo, così restano nel repository e si vedono da tutti i dispositivi.</p>
-      <p class="small muted">Crea un <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">fine-grained token</a>
-        con accesso solo a questo repository e permesso <b>Contents: Read and write</b>. Il token resta salvato solo in questo browser.</p>
-      <form id="gh" class="options">
-        <label>Utente / organizzazione<input name="owner" value="${esc(s.owner)}" autocapitalize="off" required></label>
-        <label>Repository<input name="repo" value="${esc(s.repo)}" autocapitalize="off" required></label>
-        <label>Branch<input name="branch" value="${esc(s.branch)}" autocapitalize="off" required></label>
-        <label>Token<input name="token" type="password" value="${esc(s.token)}" autocomplete="off" placeholder="github_pat_…"></label>
-        <div class="actions">
-          <button class="btn primary" type="submit">Salva</button>
-          <button class="btn" type="button" id="test">Prova connessione</button>
+      <h2 class="title-l">Salva i punteggi su GitHub</h2>
+      <p class="body-m variant">I punteggi restano sempre in questo browser. Con un token GitHub vengono scritti anche in <code>punteggi.json</code>, nella cartella di ogni mazzo, e li vedi da tutti i dispositivi.</p>
+      <p class="body-m variant">Crea un <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">fine-grained token</a> limitato a questo repository, con il permesso <strong>Contents: Read and write</strong>. Il token resta salvato solo in questo browser.</p>
+      <form id="gh" class="settings-form">
+        ${field('owner', 'Utente o organizzazione', s.owner, 'required')}
+        ${field('repo', 'Repository', s.repo, 'required')}
+        ${field('branch', 'Branch', s.branch, 'required')}
+        ${field('token', 'Token', s.token, 'type="password" placeholder="github_pat_…"')}
+        <div class="btn-row">
+          <button class="btn outlined" type="button" id="test">Prova connessione</button>
+          <button class="btn filled" type="submit">Salva</button>
         </div>
       </form>
-      <p id="gh-msg" class="small"></p>
     </section>
     <section class="card">
-      <h2>Sincronizzazione</h2>
-      <p class="small">${pending ? `${pending} punteggi non ancora salvati nel repository.` : 'Tutti i punteggi sono sincronizzati.'}</p>
-      <button class="btn" id="sync-now" ${pending ? '' : 'disabled'}>Sincronizza ora</button>
-      <p id="sync-msg" class="small"></p>
+      <h2 class="title-l">Sincronizzazione</h2>
+      <p class="body-m variant">${pending ? `${pending} ${pending === 1 ? 'punteggio non è ancora stato salvato' : 'punteggi non sono ancora stati salvati'} nel repository.` : 'Tutti i punteggi sono salvati nel repository.'}</p>
+      <button class="btn tonal" id="sync-now" ${pending ? '' : 'disabled'}>${icon('sync')}Sincronizza ora</button>
     </section>
   </main>`);
 
   const read = () => Object.fromEntries(new FormData(document.getElementById('gh')));
-  const msg = (id, t, ok) => { const el = document.getElementById(id); el.textContent = t; el.className = `small ${ok ? 'good-text' : 'bad-text'}`; };
   document.getElementById('gh').addEventListener('submit', (e) => {
     e.preventDefault();
     scores.saveSettings(read());
-    msg('gh-msg', 'Salvato ✓', true);
+    snackbar('Impostazioni salvate');
   });
   document.getElementById('test').addEventListener('click', async () => {
-    try { msg('gh-msg', `Connesso a ${await scores.testConnection(read())} ✓`, true); } catch (e) { msg('gh-msg', `Errore: ${e.message}`, false); }
+    try { snackbar(`Connesso a ${await scores.testConnection(read())}`); } catch (e) { snackbar(`Connessione non riuscita: ${e.message}. Controlla utente, repository e token.`); }
   });
   document.getElementById('sync-now').addEventListener('click', async () => {
     scores.saveSettings(read());
     const r = await scores.syncAll();
-    msg('sync-msg', r.ok ? `${r.inviati} punteggi inviati ✓` : `Errore: ${r.errore}`, r.ok);
+    snackbar(r.ok ? `${r.inviati} ${r.inviati === 1 ? 'punteggio salvato' : 'punteggi salvati'} nel repository` : `Sincronizzazione non riuscita: ${r.errore}`);
+    if (r.ok) viewSettings();
   });
 }
 
