@@ -9,6 +9,7 @@ import android.graphics.Insets;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Base64;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -22,7 +23,15 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.window.OnBackInvokedDispatcher;
 
+import androidx.webkit.JavaScriptReplyProxy;
 import androidx.webkit.WebViewAssetLoader;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+
+import org.json.JSONObject;
+
+import java.io.OutputStream;
+import java.util.Collections;
 
 /**
  * L'app contiene il sito (cartella assets/www, copiata durante la build) e lo serve
@@ -34,10 +43,13 @@ public class MainActivity extends Activity {
     private static final String HOST = "appassets.androidplatform.net";
     private static final String START = "https://" + HOST + "/assets/www/index.html";
     private static final int PICK_FILES = 1;
+    private static final int SAVE_FILE = 2;
 
     private WebView web;
     private WebViewAssetLoader assets;
     private ValueCallback<Uri[]> fileCallback;
+    private byte[] pendingSave;
+    private JavaScriptReplyProxy pendingReply;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -114,6 +126,13 @@ public class MainActivity extends Activity {
             }
         });
 
+        // Canale "StudioAndroid" per l'esportazione: solo il sito incluso nell'app può usarlo.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(web, "StudioAndroid",
+                    Collections.singleton("https://" + HOST),
+                    (view, message, sourceOrigin, isMainFrame, reply) -> onWebMessage(message.getData(), reply));
+        }
+
         if (Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::goBackOrExit);
@@ -123,10 +142,41 @@ public class MainActivity extends Activity {
         else web.loadUrl(START);
     }
 
+    // Messaggio dal JavaScript: {"type":"save","name":"...","mime":"...","data":"<base64>"}
+    private void onWebMessage(String json, JavaScriptReplyProxy reply) {
+        try {
+            JSONObject m = new JSONObject(json);
+            if (!"save".equals(m.optString("type"))) return;
+            pendingSave = Base64.decode(m.getString("data"), Base64.DEFAULT);
+            pendingReply = reply;
+            Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType(m.optString("mime", "application/octet-stream"));
+            i.putExtra(Intent.EXTRA_TITLE, m.optString("name", "export"));
+            startActivityForResult(i, SAVE_FILE);
+        } catch (Exception e) {
+            reply.postMessage("{\"ok\":false}");
+        }
+    }
+
     @SuppressWarnings("deprecation")
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == SAVE_FILE) {
+            boolean ok = false;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null && pendingSave != null) {
+                try (OutputStream out = getContentResolver().openOutputStream(data.getData(), "wt")) {
+                    out.write(pendingSave);
+                    ok = true;
+                } catch (Exception ignored) {
+                }
+            }
+            if (pendingReply != null) pendingReply.postMessage(ok ? "{\"ok\":true}" : "{\"ok\":false}");
+            pendingSave = null;
+            pendingReply = null;
+            return;
+        }
         if (requestCode != PICK_FILES || fileCallback == null) return;
         Uri[] result = null;
         if (resultCode == RESULT_OK && data != null) {

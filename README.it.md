@@ -26,7 +26,23 @@ Nella pagina di un mazzo, scegliendo **Punti deboli**, la sessione prende per pr
 Durante la sessione, una domanda sbagliata torna alla fine (le flashcard tornano dopo qualche carta), ma il punteggio conta solo il primo tentativo.
 La pagina del mazzo mostra anche l'elenco delle domande che sbagli più spesso.
 
-## Creare flashcard e quiz con l'AI
+## Guida rapida
+
+**Crea flashcard con l'AI (dall'app o dal sito)**
+1. Apri **Sul dispositivo** → **Nuovo mazzo**, scegli *Flashcard* o *Quiz*.
+2. Tocca **Copia le istruzioni per l'AI**.
+3. In ChatGPT, Claude o Gemini incolla le istruzioni, aggiungi sotto i tuoi appunti e invia.
+4. Copia la risposta, incollala nell'editor al posto dell'esempio e tocca **Salva**.
+
+Il riquadro sotto l'editor è verde se il formato è giusto, rosso con il numero di riga se c'è un errore.
+
+**Studia**: tocca la carta per girarla (flashcard) o la risposta (quiz). **Punti deboli** ripropone prima quello che sbagli di più.
+
+**Conserva**: **Esporta** salva un mazzo (.md) o una cartella (.zip), **Importa file** li ricarica. Fallo ogni tanto come backup.
+
+La stessa guida è nell'app, sotto l'icona **?**.
+
+## Creare flashcard e quiz con l'AI (nel repository)
 
 Il flusso pensato è: **tu scrivi gli appunti, l'AI li trasforma in un mazzo**.
 

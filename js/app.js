@@ -1,6 +1,7 @@
 import { parseDeck, normalizeAnswer } from './parser.js';
 import * as scores from './scores.js';
 import * as library from './library.js';
+import { makeZip, readZip, saveFile } from './files.js';
 import { IN_APP, onlineEnabled, setOnlineEnabled, getRemoteText } from './env.js';
 
 const $app = document.getElementById('app');
@@ -109,6 +110,7 @@ function appbar(title, back) {
     ${back
     ? `<a class="icon-btn state" href="${back}" aria-label="Indietro">${icon('arrow_back')}</a><h1 class="title-l">${esc(title)}</h1>`
     : `<div class="brand">${icon('school', 'fill')}</div><h1 class="title-l"></h1>`}
+    <a class="icon-btn state" href="#/guida" aria-label="Guida">${icon('help')}</a>
     <a class="icon-btn state" href="#/impostazioni" aria-label="Impostazioni">${icon('settings')}</a>
   </header>`;
 }
@@ -194,6 +196,7 @@ async function route() {
     if (h.startsWith('/nuovo/')) return viewEditor({ folder: h.slice('/nuovo/'.length) });
     if (h.startsWith('/modifica/')) return viewEditor({ path: h.slice('/modifica/'.length) });
     if (h === '/impostazioni') return viewSettings();
+    if (h === '/guida') return viewGuide();
     return viewFolder('');
   } catch (e) {
     render(`${appbar('Errore', '#/')}<main><div class="card error">${esc(e.message)}</div></main>`);
@@ -223,12 +226,19 @@ async function viewFolder(folder) {
     <label class="searchbar">${icon('search')}<input type="search" id="search" placeholder="Cerca un mazzo" autocomplete="off" aria-label="Cerca un mazzo"></label>
     <div id="search-results" class="list"></div>` : ''}
     <div id="browse">
+    ${!folder && !localStorage.getItem(GUIDE_SEEN) ? `<section class="card hint">
+      <button class="icon-btn state hint-close" id="hint-close" aria-label="Chiudi">${icon('close')}</button>
+      <h2 class="title-l">${icon('auto_awesome', 'fill')}Prima volta qui?</h2>
+      <p class="body-m variant">Trasforma i tuoi appunti in flashcard con l'AI in quattro passaggi.</p>
+      <a class="btn filled" href="#/guida">Apri la guida</a>
+    </section>` : ''}
     ${!folder && pending ? `<a class="sync-banner state" href="#/impostazioni">${icon('sync')}<span>${pending} ${pending === 1 ? 'sessione da sincronizzare' : 'sessioni da sincronizzare'} con GitHub</span>${icon('chevron_right')}</a>` : ''}
     ${local ? `<div class="local-actions">
       <a class="btn filled" href="#/nuovo/${encPath(folder)}">${icon('add')}Nuovo mazzo</a>
       <button class="btn tonal" id="import">${icon('upload_file')}Importa file</button>
       <button class="btn tonal" id="new-folder">${icon('create_new_folder')}Nuova cartella</button>
-      <input type="file" id="file" accept=".md,.txt,text/markdown,text/plain" multiple hidden>
+      <button class="btn tonal" id="export-folder" ${countIn(folder) ? '' : 'disabled'}>${icon('download')}Esporta</button>
+      <input type="file" id="file" accept=".md,.txt,.zip,text/markdown,text/plain,application/zip" multiple hidden>
     </div>` : ''}
     ${subs.length ? `<div class="subhead title-s">Cartelle</div><div class="list">${subs.map((f) => `
       <a class="item state" href="#/cartella/${encPath(f)}">
@@ -245,6 +255,11 @@ async function viewFolder(folder) {
     ${local && folder !== library.ROOT ? `<div class="btn-col"><button class="btn text danger" id="del-folder">${icon('delete')}Elimina cartella</button></div>` : ''}
     </div>
   </main>`);
+
+  document.getElementById('hint-close')?.addEventListener('click', (e) => {
+    localStorage.setItem(GUIDE_SEEN, '1');
+    e.currentTarget.closest('.hint').remove();
+  });
 
   const $s = document.getElementById('search');
   if ($s) {
@@ -273,16 +288,34 @@ async function viewFolder(folder) {
   $file.addEventListener('change', async () => {
     let ok = 0;
     const skipped = [];
-    for (const f of $file.files) {
-      const text = await f.text();
-      if (!parseDeck(text).items.length) { skipped.push(f.name); continue; }
-      try {
-        library.saveDeck(text, { folder, name: f.name.replace(/\.(md|txt|markdown)$/i, '') });
-        ok++;
-      } catch (e) { snackbar(e.message); return; }
-    }
+    const add = (text, name, target) => {
+      if (!parseDeck(text).items.length) { skipped.push(name.split('/').pop()); return; }
+      library.ensureFolder(target);
+      library.saveDeck(text, { folder: target, fileName: name.split('/').pop().replace(/\.(md|txt|markdown)$/i, '') });
+      ok++;
+    };
+    try {
+      for (const f of $file.files) {
+        if (/\.zip$/i.test(f.name)) {
+          // Archivio (es. un backup esportato): ricrea le sottocartelle.
+          for (const e of await readZip(await f.arrayBuffer())) {
+            if (!/\.(md|txt|markdown)$/i.test(e.name) || e.name.startsWith('__MACOSX')) continue;
+            const dirs = e.name.split('/').slice(0, -1).map(library.slug);
+            add(e.text, e.name, [folder, ...dirs].join('/'));
+          }
+        } else {
+          add(await f.text(), f.name, folder);
+        }
+      }
+    } catch (e) { snackbar(e.message); }
     await route();
     snackbar(`${ok === 1 ? 'Importato 1 mazzo' : `Importati ${ok} mazzi`}${skipped.length ? `. Saltati perché non nel formato dei mazzi: ${skipped.join(', ')}` : ''}`);
+  });
+  document.getElementById('export-folder').addEventListener('click', async () => {
+    const name = folder === library.ROOT ? 'studio-mazzi' : folder.split('/').pop();
+    const prefix = folder === library.ROOT ? '' : `${name}/`;
+    const zip = makeZip(library.tree(folder).map((e) => ({ name: prefix + e.rel, text: e.text })));
+    if (await saveFile(`${name}.zip`, 'application/zip', zip)) snackbar(`Esportato ${name}.zip. Puoi reimportarlo con "Importa file".`);
   });
   document.getElementById('del-folder')?.addEventListener('click', async () => {
     const n = countIn(folder);
@@ -492,8 +525,9 @@ async function viewDeck(path) {
       </form>
       ${library.isLocal(path) ? `<div class="btn-row">
         <a class="btn outlined" href="#/modifica/${encPath(path)}">${icon('edit')}Modifica</a>
-        <button class="btn outlined danger" id="del-deck">${icon('delete')}Elimina</button>
-      </div>` : ''}
+        <button class="btn outlined" id="export-deck">${icon('download')}Esporta</button>
+      </div>
+      <div class="btn-col"><button class="btn text danger" id="del-deck">${icon('delete')}Elimina mazzo</button></div>` : ''}
     </section>
     ${hardest.length ? `<div class="subhead title-s">${isQuiz ? 'Domande' : 'Carte'} che sbagli più spesso</div>
       <div class="list">${hardest.map(({ it, s }) => `
@@ -507,6 +541,10 @@ async function viewDeck(path) {
       ${resultList(results.slice(0, 10), false)}` : ''}
   </main>`);
 
+  document.getElementById('export-deck')?.addEventListener('click', async () => {
+    const name = path.split('/').pop();
+    if (await saveFile(name, 'text/markdown', library.readDeck(path))) snackbar(`Esportato ${name}`);
+  });
   document.getElementById('del-deck')?.addEventListener('click', async () => {
     if (!(await dialog({ title: `Eliminare “${d.titolo}”?`, text: 'Il mazzo verrà eliminato da questo dispositivo. I punteggi restano nello storico.', confirm: 'Elimina', danger: true }))) return;
     library.deleteDeck(path);
@@ -801,6 +839,43 @@ async function finish() {
   }
   const r = await scores.syncAll();
   snackbar(r.ok ? 'Punteggio salvato e sincronizzato con GitHub' : `Punteggio salvato sul dispositivo. Sincronizzazione non riuscita: ${r.errore}`);
+}
+
+// ---------- guida ----------
+const GUIDE_SEEN = 'sq.guida-vista';
+
+function viewGuide() {
+  localStorage.setItem(GUIDE_SEEN, '1');
+  render(`${appbar('Guida', '#/')}
+  <main class="guide">
+    <section class="card">
+      <h2 class="title-l">${icon('auto_awesome', 'fill')}Crea flashcard con l'AI</h2>
+      <ol class="steps">
+        <li>Apri <strong>${LOCAL_NAME}</strong> e tocca <strong>Nuovo mazzo</strong>. Scegli <em>Flashcard</em> o <em>Quiz</em>.</li>
+        <li>Tocca <strong>Copia le istruzioni per l'AI</strong>.</li>
+        <li>In ChatGPT, Claude o Gemini incolla le istruzioni, aggiungi sotto i tuoi appunti e invia.</li>
+        <li>Copia la risposta, incollala nell'editor al posto dell'esempio e tocca <strong>Salva</strong>.</li>
+      </ol>
+      <p class="body-m variant">Il riquadro sotto l'editor diventa verde quando il formato è giusto; se è rosso indica la riga da correggere. Puoi chiedere all'AI quante carte vuoi, per esempio "fammene 20".</p>
+      <a class="btn filled" href="#/nuovo/${encPath(library.ROOT)}">${icon('add')}Crea il primo mazzo</a>
+    </section>
+    <section class="card">
+      <h2 class="title-l">Studia</h2>
+      <ul class="bullets body-m">
+        <li><strong>Flashcard</strong>: tocca la carta per girarla, poi scegli <em>La sapevo</em> o <em>Da ripassare</em>.</li>
+        <li><strong>Quiz</strong>: tocca la risposta e leggi la spiegazione.</li>
+        <li><strong>Punti deboli</strong> ti ripropone prima quello che sbagli più spesso.</li>
+      </ul>
+    </section>
+    <section class="card">
+      <h2 class="title-l">Organizza e conserva</h2>
+      <ul class="bullets body-m">
+        <li>In <strong>${LOCAL_NAME}</strong> crei cartelle e sottocartelle.</li>
+        <li><strong>Esporta</strong> salva un mazzo (.md) o una cartella intera (.zip); <strong>Importa file</strong> li ricarica.</li>
+        <li>Esporta ogni tanto come backup: se disinstalli l'app, i mazzi sul dispositivo si perdono.</li>
+      </ul>
+    </section>
+  </main>`);
 }
 
 // ---------- impostazioni ----------

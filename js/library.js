@@ -64,11 +64,23 @@ export function addFolder(parent, name) {
   return id;
 }
 
-// Salva un mazzo. Senza path ne crea uno nuovo nella cartella, con il nome ricavato dal titolo.
-export function saveDeck(text, { path = null, folder = ROOT, name = '' } = {}) {
+// Crea la cartella e quelle che la contengono, se mancano.
+export function ensureFolder(id) {
+  const d = load();
+  const parts = id.split('/');
+  for (let i = 2; i <= parts.length; i++) {
+    const f = parts.slice(0, i).join('/');
+    if (!d.cartelle.includes(f)) d.cartelle.push(f);
+  }
+  store(d);
+}
+
+// Salva un mazzo. Senza path ne crea uno nuovo nella cartella, con il nome ricavato
+// dal titolo (o dal nome del file, se fileName è dato).
+export function saveDeck(text, { path = null, folder = ROOT, name = '', fileName = '' } = {}) {
   const d = load();
   if (!path) {
-    const base = slug(parseDeck(text).title || name || 'mazzo');
+    const base = slug(fileName || parseDeck(text).title || name || 'mazzo');
     path = `${folder}/${base}.md`;
     for (let i = 2; d.mazzi[path] !== undefined; i++) path = `${folder}/${base}-${i}.md`;
   }
@@ -92,4 +104,13 @@ export function deleteFolder(id) {
   d.cartelle = d.cartelle.filter((c) => !inside(c));
   store(d);
   return decks.length;
+}
+
+// Mazzi contenuti in una cartella (anche nelle sottocartelle), con il percorso relativo.
+export function tree(folder) {
+  const d = load();
+  const prefix = folder + '/';
+  return Object.entries(d.mazzi)
+    .filter(([p]) => p.startsWith(prefix))
+    .map(([p, text]) => ({ rel: p.slice(prefix.length), text }));
 }

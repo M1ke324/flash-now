@@ -389,3 +389,19 @@ main {
 .m3-dialog::backdrop { background: rgb(0 0 0 / 32%); }
 .m3-dialog .field { margin-top: 8px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+
+/* ---------- guida ---------- */
+.hint { position: relative; margin-top: 16px; background: var(--primary-container); color: var(--on-primary-container); }
+.hint .variant { color: inherit; opacity: 0.85; }
+.hint h2, .guide h2 { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.hint h2 .icon, .guide h2 .icon { color: var(--primary); }
+.hint .btn { margin-top: 8px; }
+.hint-close { position: absolute; top: 8px; right: 8px; color: inherit; }
+.steps { margin: 16px 0; padding: 0; list-style: none; counter-reset: step; display: flex; flex-direction: column; gap: 14px; }
+.steps li { counter-increment: step; position: relative; padding-left: 42px; min-height: 28px; }
+.steps li::before {
+  content: counter(step); position: absolute; left: 0; top: -2px; display: grid; place-items: center; width: 28px; height: 28px;
+  border-radius: var(--shape-full); background: var(--primary); color: var(--on-primary); font-size: 14px; font-weight: 700;
+}
+.guide .card > .btn { margin-top: 8px; }
+.bullets { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }

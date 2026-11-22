@@ -29,7 +29,23 @@ The deck page also lists the questions you miss most often.
 > The interface and the deck format use Italian keywords (`D:` = question, `R:` = answer, `S:` = explanation).
 > English aliases are accepted too: `Q:`, `A:`, `E:`.
 
-## Creating flashcards and quizzes with AI
+## Quick guide
+
+**Create flashcards with AI (in the app or on the site)**
+1. Open **Sul dispositivo** (on this device) → **Nuovo mazzo** (new deck), pick *Flashcard* or *Quiz*.
+2. Tap **Copia le istruzioni per l'AI** (copy the AI instructions).
+3. In ChatGPT, Claude or Gemini paste the instructions, add your notes below and send.
+4. Copy the answer, paste it into the editor in place of the example and tap **Salva** (save).
+
+The box under the editor turns green when the format is right, red with a line number when something is wrong.
+
+**Study**: tap the card to flip it (flashcards) or tap an answer (quiz). **Punti deboli** (weak spots) shows what you miss most first.
+
+**Keep your decks**: **Esporta** (export) saves a deck (.md) or a folder (.zip), **Importa file** (import) loads them back. Do it now and then as a backup.
+
+The same guide is in the app, under the **?** icon.
+
+## Creating flashcards and quizzes with AI (in the repository)
 
 The intended workflow: **you write the notes, an AI assistant turns them into a deck**.
 
