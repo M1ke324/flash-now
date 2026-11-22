@@ -93,6 +93,22 @@ Il sito stesso è stato scritto da [Claude Code](https://claude.com/claude-code)
 
 Per modificare il sito con l'AI basta chiederlo in questa cartella ("aggiungi una modalità esame a tempo", "cambia il colore principale"): `CLAUDE.md` descrive anche la struttura del codice.
 
+## App Android (APK)
+
+L'APK si scarica dalle [Release](https://github.com/M1ke324/studio-quiz/releases/latest): aprilo dal telefono e consenti l'installazione da quella fonte quando Android lo chiede.
+
+L'app (cartella `android/`) è un contenitore leggero che apre il sito: i nuovi mazzi compaiono senza aggiornare l'APK, e punteggi e impostazioni restano salvati nell'app. Serve una connessione internet.
+
+**Pubblicare una nuova versione:** crea un tag e fai push.
+
+```sh
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+La Action `.github/workflows/android.yml` compila l'APK, lo firma e crea la Release con il file allegato.
+La firma usa una chiave salvata nei secret del repository, creata una sola volta con `scripts/android-keystore.sh`.
+Conserva la chiave (`~/.android-keys/`): Android accetta un aggiornamento solo se è firmato con la stessa chiave.
+
 ## Salvare i punteggi nel repository
 
 1. Vai su <https://github.com/settings/personal-access-tokens/new> (fine-grained token).
@@ -124,6 +140,7 @@ js/parser.js                lettura del formato dei mazzi
 js/scores.js                punteggi (browser + GitHub)
 scripts/build-manifest.mjs  genera decks.json e verifica i mazzi
 decks/                      i mazzi (e i punteggi.json)
+android/                    app Android (contenitore WebView del sito)
 FORMATO.md                  specifica del formato
 CLAUDE.md                   istruzioni per l'assistente AI
 ```

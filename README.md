@@ -96,6 +96,22 @@ The site itself was written by [Claude Code](https://claude.com/claude-code) fro
 
 To change the site with AI, just ask in this folder ("add a timed exam mode", "change the main colour"): `CLAUDE.md` also describes the code structure.
 
+## Android app (APK)
+
+Download the APK from [Releases](https://github.com/M1ke324/studio-quiz/releases/latest), open it on your phone and allow installs from that source when Android asks.
+
+The app (`android/` folder) is a thin wrapper that opens the site: new decks show up without updating the APK, and scores and settings are kept inside the app. An internet connection is required.
+
+**Releasing a new version:** create a tag and push it.
+
+```sh
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+The `.github/workflows/android.yml` Action builds the APK, signs it and creates a Release with the file attached.
+Signing uses a key stored in the repository secrets, created once with `scripts/android-keystore.sh`.
+Keep the key safe (`~/.android-keys/`): Android only accepts an update signed with the same key.
+
 ## Saving scores to the repository
 
 1. Go to <https://github.com/settings/personal-access-tokens/new> (fine-grained token).
@@ -127,6 +143,7 @@ js/parser.js                deck format parser
 js/scores.js                scores (browser + GitHub)
 scripts/build-manifest.mjs  builds decks.json and validates decks
 decks/                      the decks (and punteggi.json files)
+android/                    Android app (WebView wrapper around the site)
 FORMATO.md                  format specification
 CLAUDE.md                   instructions for the AI assistant
 ```
