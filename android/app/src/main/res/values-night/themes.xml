@@ -1,0 +1,9 @@
+<resources>
+    <color name="surface">#0E1513</color>
+    <color name="primary">#82D5C8</color>
+    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/surface</item>
+        <item name="android:colorPrimary">@color/primary</item>
+        <item name="android:colorAccent">@color/primary</item>
+    </style>
+</resources>

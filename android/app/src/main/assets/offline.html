@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; --bg: #f4fbf8; --fg: #161d1b; --muted: #3f4947; --btn: #006a60; --on-btn: #fff; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0e1513; --fg: #dde4e1; --muted: #bec9c6; --btn: #82d5c8; --on-btn: #003731; } }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg); font: 16px/1.5 Roboto, system-ui, sans-serif; text-align: center; }
+  div { padding: 24px; max-width: 320px; }
+  h1 { font-size: 22px; font-weight: 500; margin: 0 0 8px; }
+  p { color: var(--muted); margin: 0 0 24px; }
+  button { height: 40px; padding: 0 24px; border: 0; border-radius: 20px; background: var(--btn); color: var(--on-btn); font: 600 14px Roboto, system-ui, sans-serif; }
+</style>
+</head>
+<body>
+  <div>
+    <h1>Sei offline</h1>
+    <p>L'app scarica mazzi e punteggi da internet. Controlla la connessione e riprova.</p>
+    <button onclick="location.href='https://m1ke324.github.io/studio-quiz/'">Riprova</button>
+  </div>
+</body>
+</html>
