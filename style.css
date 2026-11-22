@@ -341,3 +341,16 @@ main {
   .face.front .face-content { font-size: 24px; line-height: 32px; }
   .home-title { font-size: 32px; line-height: 40px; }
 }
+
+/* segmented button M3 */
+.segmented { display: flex; height: 40px; border: 1px solid var(--outline); border-radius: var(--shape-full); overflow: hidden; }
+.segmented label { flex: 1; display: flex; cursor: pointer; }
+.segmented label + label { border-left: 1px solid var(--outline); }
+.segmented input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented label > span { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; font-weight: 600; letter-spacing: 0.1px; color: var(--on-surface); transition: background-color 150ms var(--ease); }
+.segmented label > span .icon { font-size: 18px; width: 0; opacity: 0; transition: width 200ms var(--ease), opacity 150ms var(--ease); }
+.segmented input:checked + span { background: var(--secondary-container); color: var(--on-secondary-container); }
+.segmented input:checked + span .icon { width: 18px; opacity: 1; }
+.segmented input:disabled + span { opacity: 0.38; cursor: default; }
+.segmented input:focus-visible + span { outline: 3px solid var(--secondary); outline-offset: -3px; }
+.mode-help { margin: 0 4px 8px; }

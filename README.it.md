@@ -10,7 +10,21 @@ Sito statico per ripassare con **flashcard** e **quiz**, pubblicato su GitHub Pa
 - All'avvio il sito mostra il menu delle cartelle e dei mazzi, con la ricerca.
 - I punteggi vengono salvati nel file `punteggi.json` di ogni cartella, nel repository stesso.
 - Si può aggiungere alla schermata Home del telefono come un'app.
+- Modalità **Punti deboli**: ripropone più spesso le domande e le carte che sbagli di più.
 - Tema chiaro e scuro in stile Material 3.
+
+## Modalità "Punti deboli"
+
+Il sito registra l'esito di ogni singola domanda (nel `punteggi.json`, insieme al punteggio).
+Nella pagina di un mazzo, scegliendo **Punti deboli**, la sessione prende per prime:
+
+1. le domande che sbagli più spesso (in proporzione ai tentativi);
+2. quelle che non ripassi da tempo, con un sistema a scatole (Leitner): ogni risposta giusta
+   allunga l'intervallo prima del ripasso successivo (1, 2, 4, 8, 16 giorni), ogni errore lo azzera;
+3. quelle mai viste.
+
+Durante la sessione, una domanda sbagliata torna alla fine (le flashcard tornano dopo qualche carta), ma il punteggio conta solo il primo tentativo.
+La pagina del mazzo mostra anche l'elenco delle domande che sbagli più spesso.
 
 ## Creare flashcard e quiz con l'AI
 

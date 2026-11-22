@@ -33,6 +33,44 @@ const shuffle = (arr) => {
   return a;
 };
 
+// ---------- statistiche per domanda e ripasso mirato ----------
+// Sistema a scatole (Leitner): risposta giusta -> scatola +1, sbagliata -> scatola 1.
+// Più la scatola è alta, più a lungo la domanda può aspettare prima del prossimo ripasso.
+const BOX_DAYS = [0, 1, 2, 4, 8, 16];
+
+function itemStats(results) {
+  const stats = new Map();
+  for (const r of results.slice().sort((a, b) => a.data.localeCompare(b.data))) {
+    for (const a of r.risposte || []) {
+      const s = stats.get(a.d) || { tentativi: 0, errori: 0, box: 0, ultima: null };
+      s.tentativi++;
+      if (a.ok) s.box = Math.min(5, s.box + 1);
+      else { s.errori++; s.box = 1; }
+      s.ultima = r.data;
+      stats.set(a.d, s);
+    }
+  }
+  return stats;
+}
+
+// Priorità di ripasso: quanto la sbagli (con correzione per pochi tentativi)
+// + bonus se è "scaduta" secondo la scatola + un po' di casualità per variare.
+function priority(s) {
+  if (!s) return 0.5 + 0.3 + Math.random() * 0.1; // mai vista: media
+  const weakness = (s.errori + 1) / (s.tentativi + 2);
+  const days = (Date.now() - new Date(s.ultima)) / 864e5;
+  const due = days >= BOX_DAYS[s.box] ? 0.3 : 0;
+  return weakness + due + Math.random() * 0.1;
+}
+
+function pickWeak(items, stats, n) {
+  return shuffle(items
+    .map((it) => ({ it, p: priority(stats.get(it.id)) }))
+    .sort((a, b) => b.p - a.p)
+    .slice(0, n)
+    .map((x) => x.it));
+}
+
 function fmtDate(iso) {
   const d = new Date(iso);
   const today = new Date();
@@ -178,7 +216,7 @@ function resultList(list, withDeck) {
       <span class="score-chip ${pctClass(r.percentuale)}">${r.percentuale}%</span>
       <span class="item-main">
         <span class="headline">${withDeck ? esc(title(r.mazzo)) : `${r.punti} su ${r.totale}`}</span>
-        <span class="support">${withDeck ? `${r.punti} su ${r.totale}, ` : ''}${fmtDur(r.durata || 0)}</span>
+        <span class="support">${withDeck ? `${r.punti} su ${r.totale}, ` : ''}${fmtDur(r.durata || 0)}${r.modo === 'deboli' ? ', punti deboli' : ''}</span>
       </span>
       <span class="trail-text">${fmtDate(r.data)}</span>
     </div>`).join('')}</div>`;
@@ -194,6 +232,15 @@ async function viewDeck(path) {
   const n = deck.items.length;
   const counts = [5, 10, 20, 30, 50].filter((c) => c < n);
   const chartData = results.slice(0, 20).reverse();
+  const stats = itemStats(results);
+  const playable = deck.items.filter((it) => (isQuiz ? it.kind : it.q && it.a));
+  const hardest = playable
+    .map((it) => ({ it, s: stats.get(it.id) }))
+    .filter((x) => x.s?.errori)
+    .sort((a, b) => b.s.errori / b.s.tentativi - a.s.errori / a.s.tentativi || b.s.errori - a.s.errori)
+    .slice(0, 5);
+  const weakReady = stats.size > 0;
+  const plain = (t) => t.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/[*`]/g, '').replace(/\n/g, ' ');
 
   render(`${appbar(d.cartella ? folderName(d.cartella) : 'Studio', d.cartella ? `#/cartella/${encPath(d.cartella)}` : '#/')}
   <main>
@@ -208,34 +255,63 @@ async function viewDeck(path) {
       </div>
       ${deck.errors.length ? `<div class="warn body-m"><strong>Il file contiene errori:</strong><br>${deck.errors.map(esc).join('<br>')}</div>` : ''}
       <form id="start" class="settings-form">
+        <div class="segmented" role="radiogroup" aria-label="Modalità">
+          <label><input type="radio" name="mode" value="all" checked><span>${icon('check')}Tutte</span></label>
+          <label><input type="radio" name="mode" value="weak" ${weakReady ? '' : 'disabled'}><span>${icon('check')}Punti deboli</span></label>
+        </div>
+        <p class="mode-help body-m variant" id="mode-help"></p>
         <div class="field">
           <label for="count">${isQuiz ? 'Domande' : 'Carte'} per sessione</label>
           <select id="count" name="count">${counts.map((c) => `<option value="${c}">${c}</option>`).join('')}<option value="${n}" selected>Tutte (${n})</option></select>
           ${icon('arrow_drop_down')}
         </div>
-        <label class="setting-row"><span>Ordine casuale</span><input class="switch" type="checkbox" name="shuffle" ${deck.shuffle ? 'checked' : ''}></label>
+        <label class="setting-row" id="shuffle-row"><span>Ordine casuale</span><input class="switch" type="checkbox" name="shuffle" ${deck.shuffle ? 'checked' : ''}></label>
         ${!isQuiz ? '<label class="setting-row"><span>Mostra prima la risposta</span><input class="switch" type="checkbox" name="reverse"></label>' : ''}
         <button class="btn filled large" type="submit">${icon('play_arrow', 'fill')}Inizia</button>
       </form>
     </section>
+    ${hardest.length ? `<div class="subhead title-s">${isQuiz ? 'Domande' : 'Carte'} che sbagli più spesso</div>
+      <div class="list">${hardest.map(({ it, s }) => `
+        <div class="item">
+          <span class="score-chip ${pctClass(100 - Math.round((s.errori / s.tentativi) * 100))}">${s.errori}/${s.tentativi}</span>
+          <span class="item-main"><span class="headline">${esc(plain(it.q))}</span>
+          <span class="support">sbagliata ${s.errori} ${s.errori === 1 ? 'volta' : 'volte'} su ${s.tentativi}</span></span>
+        </div>`).join('')}</div>` : ''}
     ${results.length ? `<div class="subhead title-s">Andamento</div>
       <div class="chart" aria-label="Percentuali degli ultimi ${chartData.length} tentativi">${chartData.map((r) => `<span class="${pctClass(r.percentuale)}" style="height:${Math.max(4, r.percentuale)}%" title="${r.percentuale}%"></span>`).join('')}</div>
       ${resultList(results.slice(0, 10), false)}` : ''}
   </main>`);
 
-  document.getElementById('start').addEventListener('submit', (ev) => {
+  const $form = document.getElementById('start');
+  const $count = document.getElementById('count');
+  const updateMode = () => {
+    const weak = $form.mode.value === 'weak';
+    document.getElementById('shuffle-row').hidden = weak;
+    document.getElementById('mode-help').textContent = !weakReady
+      ? `Completa una sessione per sbloccare "Punti deboli": sceglie ${isQuiz ? 'le domande' : 'le carte'} che sbagli più spesso.`
+      : weak
+        ? `Prima ${isQuiz ? 'le domande' : 'le carte'} che sbagli più spesso, poi quelle che non ripassi da tempo e quelle mai viste.`
+        : `Tutte ${isQuiz ? 'le domande' : 'le carte'} del mazzo.`;
+    if (weak && $count.value === String(n) && counts.includes(10)) $count.value = '10';
+  };
+  $form.querySelectorAll('[name=mode]').forEach((r) => r.addEventListener('change', updateMode));
+  updateMode();
+
+  $form.addEventListener('submit', (ev) => {
     ev.preventDefault();
     const f = new FormData(ev.target);
-    let items = deck.items.filter((it) => (isQuiz ? it.kind : it.q && it.a));
-    if (f.get('shuffle')) items = shuffle(items);
-    items = items.slice(0, Number(f.get('count')));
-    startSession(d, deck, items, { reverse: !!f.get('reverse'), shuffle: !!f.get('shuffle'), record: true });
+    const count = Number(f.get('count')) || n;
+    const weak = f.get('mode') === 'weak';
+    let items = playable;
+    if (weak) items = pickWeak(items, stats, count);
+    else items = (f.get('shuffle') ? shuffle(items) : items).slice(0, count);
+    startSession(d, deck, items, { reverse: !!f.get('reverse'), shuffle: weak || !!f.get('shuffle'), record: true, mode: weak ? 'deboli' : 'tutte' });
   });
 }
 
 // ---------- sessioni ----------
 function startSession(d, deck, items, opts) {
-  session = { d, deck, items, opts, start: Date.now(), onKey: null };
+  session = { d, deck, items, original: items, opts, start: Date.now(), onKey: null };
   location.hash = `#/gioca/${encPath(d.path)}`;
   if (deck.type === 'quiz') runQuiz();
   else runFlashcards();
@@ -337,7 +413,7 @@ function showQuestion() {
   render(`${appbar(s.d.titolo, `#/mazzo/${encPath(s.d.path)}`)}
   <main class="play">
     ${progress(s.idx, s.items.length)}
-    <div class="status body-m"><span>Domanda ${s.idx + 1} di ${s.items.length}</span><span>${correctSoFar} corrette</span></div>
+    <div class="status body-m"><span>${it.retry ? 'Di nuovo: l\'avevi sbagliata' : `Domanda ${s.idx + 1} di ${s.original.length}`}</span><span>${correctSoFar} corrette</span></div>
     <section class="question">
       <div class="q-text">${md(it.q, s.d.path)}</div>
       <p class="hint body-m">${hint}</p>
@@ -381,7 +457,12 @@ function showQuestion() {
       });
     }
     checked = true;
-    s.answers.push({ it, ok, given });
+    if (!it.retry) s.answers.push({ it, ok, given });
+    // In "Punti deboli" una domanda sbagliata torna alla fine della sessione (non conta nel punteggio).
+    if (!ok && s.opts.mode === 'deboli' && !it.retry) {
+      s.items.push({ ...it, retry: true, shown: shuffle(it.options) });
+      $next.innerHTML = `Prossima domanda${icon('arrow_forward')}`;
+    }
     document.getElementById('feedback').innerHTML = `<div class="feedback ${ok ? 'good' : 'bad'}" role="status">
       ${icon(ok ? 'check_circle' : 'cancel', 'fill')}
       <div>
@@ -441,7 +522,11 @@ async function finish() {
   const wrongItems = isQuiz ? wrongAnswers.map((a) => a.it) : s.items.filter((_, i) => !s.firstTry.get(i));
   const hasToken = !!scores.getSettings().token;
 
-  if (s.opts.record) scores.addResult(s.d, { punti, totale, durata });
+  const risposte = isQuiz
+    ? s.answers.map((a) => ({ d: a.it.id, ok: a.ok }))
+    : [...s.firstTry].map(([i, ok]) => ({ d: s.items[i].id, ok }));
+  if (s.opts.record) scores.addResult(s.d, { punti, totale, durata, modo: s.opts.mode, risposte });
+  const original = s.original;
 
   const d = s.d;
   const deck = s.deck;
@@ -472,6 +557,7 @@ async function finish() {
 
   document.getElementById('retry-wrong')?.addEventListener('click', () => startSession(d, deck, shuffle(wrongItems), { ...opts, record: false }));
   document.getElementById('retry').addEventListener('click', () => {
+    if (opts.mode === 'deboli') return startSession(d, deck, shuffle(original), { ...opts, record: true });
     const items = deck.items.filter((it) => (deck.type === 'quiz' ? it.kind : it.q && it.a));
     startSession(d, deck, (opts.shuffle ? shuffle(items) : items).slice(0, totale), { ...opts, record: true });
   });

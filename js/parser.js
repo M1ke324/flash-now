@@ -67,6 +67,7 @@ export function parseDeck(text) {
 
   for (const it of deck.items) {
     it.q = it.q.trim();
+    it.id = hash(normalizeAnswer(it.q));
     it.a = it.a.trim();
     it.e = it.e.trim();
     for (const o of it.options) o.text = o.text.trim();
@@ -87,6 +88,17 @@ export function parseDeck(text) {
   }
   if (!deck.items.length) deck.errors.push('nessuna domanda trovata (le domande iniziano con "D:")');
   return deck;
+}
+
+// Identificativo di una domanda: hash FNV-1a del testo normalizzato.
+// Serve a collegare le risposte salvate alla domanda; se il testo cambia, la domanda riparte da zero.
+export function hash(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
 }
 
 // Normalizza una risposta aperta per il confronto: minuscole, senza accenti e spazi superflui.

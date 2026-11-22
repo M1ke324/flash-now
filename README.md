@@ -10,7 +10,21 @@ A static site for studying with **flashcards** and **quizzes**, published on Git
 - On launch the site shows a menu of folders and decks, with search.
 - Scores are saved in a `punteggi.json` file inside each folder, in this same repository.
 - It can be added to the phone's home screen like an app.
+- **Weak spots** mode (*Punti deboli*): shows you the questions and cards you get wrong most often, more often.
 - Light and dark theme, inspired by Google's Material 3.
+
+## Weak spots mode
+
+The site records the outcome of every single question (in `punteggi.json`, alongside the score).
+On a deck page, choosing **Punti deboli** builds the session from:
+
+1. the questions you get wrong most often (relative to attempts);
+2. the ones you haven't reviewed for a while, using a Leitner box system: each correct answer
+   lengthens the interval before the next review (1, 2, 4, 8, 16 days), each mistake resets it;
+3. the ones you have never seen.
+
+During the session a wrong question comes back at the end (flashcards come back after a few cards), but only the first attempt counts toward the score.
+The deck page also lists the questions you miss most often.
 
 > The interface and the deck format use Italian keywords (`D:` = question, `R:` = answer, `S:` = explanation).
 > English aliases are accepted too: `Q:`, `A:`, `E:`.

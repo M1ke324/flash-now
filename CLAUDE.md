@@ -14,6 +14,9 @@ Sito statico (GitHub Pages) per quiz e flashcard. Niente build, niente dipendenz
 4. Resta fedele agli appunti: non inventare fatti che non ci sono. Domande atomiche, una idea per carta.
 5. Esegui `node scripts/build-manifest.mjs --check` e correggi gli errori.
 6. Non toccare i file `punteggi.json`: li scrive il sito.
+7. Quando modifichi un mazzo esistente non riscrivere il testo delle domande senza motivo:
+   l'identificativo di una domanda è l'hash del testo, e cambiarlo azzera la sua storia
+   (usata dalla modalità "Punti deboli").
 
 ## Struttura
 

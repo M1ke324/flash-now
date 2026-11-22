@@ -132,13 +132,22 @@ l'API di GitHub (vedi README); non serve modificarlo a mano.
       "punti": 8,
       "totale": 10,
       "percentuale": 80,
-      "durata": 154
+      "durata": 154,
+      "modo": "tutte",
+      "risposte": [
+        { "d": "1x9k2qa", "ok": true },
+        { "d": "0f3mz7c", "ok": false }
+      ]
     }
   ]
 }
 ```
 
-`durata` è in secondi. `mazzo` è il percorso del file dalla radice del repository:
+`durata` è in secondi. `modo` è `tutte` oppure `deboli` (modalità "Punti deboli").
+`risposte` registra l'esito di ogni domanda: `d` è l'identificativo della domanda,
+cioè un hash del suo testo (normalizzato: minuscole, senza accenti e punteggiatura).
+Da qui il sito calcola quali domande sbagli più spesso. **Se modifichi il testo di una
+domanda, la sua storia riparte da zero**; correggere risposte, opzioni o spiegazioni invece non la azzera. `mazzo` è il percorso del file dalla radice del repository:
 se rinomini o sposti un mazzo, i vecchi risultati restano nel file ma non vengono
 più associati a quel mazzo.
 

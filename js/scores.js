@@ -62,7 +62,7 @@ export async function deckResults(deck) {
 }
 
 // ---------- scrittura ----------
-export function addResult(deck, { punti, totale, durata }) {
+export function addResult(deck, { punti, totale, durata, modo, risposte }) {
   const r = {
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     mazzo: deck.path,
@@ -73,6 +73,8 @@ export function addResult(deck, { punti, totale, durata }) {
     totale,
     percentuale: totale ? Math.round((punti / totale) * 100) : 0,
     durata,
+    modo,
+    risposte, // [{ d: id domanda, ok: true/false }]
   };
   const local = readLS(LS_LOCAL, []);
   local.push(r);
