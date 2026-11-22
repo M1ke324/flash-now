@@ -127,9 +127,9 @@ public class MainActivity extends Activity {
             }
         });
 
-        // Canale "StudioAndroid" per l'esportazione: solo il sito incluso nell'app può usarlo.
+        // Canale "FlashNowAndroid" per l'esportazione: solo il sito incluso nell'app può usarlo.
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
-            WebViewCompat.addWebMessageListener(web, "StudioAndroid",
+            WebViewCompat.addWebMessageListener(web, "FlashNowAndroid",
                     Collections.singleton("https://" + HOST),
                     (view, message, sourceOrigin, isMainFrame, reply) -> onWebMessage(message.getData(), reply));
         }

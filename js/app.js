@@ -85,7 +85,7 @@ function fmtDate(iso) {
 }
 const fmtDur = (s) => (s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`);
 const LOCAL_NAME = 'Sul dispositivo';
-const folderName = (f) => (f === library.ROOT ? LOCAL_NAME : f ? f.split('/').pop().replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Studio');
+const folderName = (f) => (f === library.ROOT ? LOCAL_NAME : f ? f.split('/').pop().replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Flash Now');
 const folderLabel = (f) => (library.isLocal(f) ? [LOCAL_NAME, ...f.split('/').slice(1)].join('/') : f);
 const pctClass = (p) => (p >= 80 ? 'good' : p >= 50 ? 'mid' : 'bad');
 const typeIcon = (t) => (t === 'quiz' ? 'quiz' : 'style');
@@ -109,7 +109,7 @@ function appbar(title, back) {
   return `<header class="appbar">
     ${back
     ? `<a class="icon-btn state" href="${back}" aria-label="Indietro">${icon('arrow_back')}</a><h1 class="title-l">${esc(title)}</h1>`
-    : `<div class="brand">${icon('school', 'fill')}</div><h1 class="title-l"></h1>`}
+    : `<div class="brand"><img src="icon.svg" alt="" width="32" height="32"></div><h1 class="title-l brand-name">Flash Now</h1>`}
     <a class="icon-btn state" href="#/guida" aria-label="Guida">${icon('help')}</a>
     <a class="icon-btn state" href="#/impostazioni" aria-label="Impostazioni">${icon('settings')}</a>
   </header>`;
@@ -594,7 +594,7 @@ async function viewDeck(path) {
   const weakReady = stats.size > 0;
   const plain = (t) => t.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/[*`]/g, '').replace(/\n/g, ' ');
 
-  render(`${appbar(d.cartella ? folderName(d.cartella) : 'Studio', d.cartella ? `#/cartella/${encPath(d.cartella)}` : '#/')}
+  render(`${appbar(d.cartella ? folderName(d.cartella) : 'Flash Now', d.cartella ? `#/cartella/${encPath(d.cartella)}` : '#/')}
   <main>
     <section class="card deck-hero">
       <div class="deck-type label-l">${icon(typeIcon(deck.type))}${isQuiz ? 'Quiz' : 'Flashcard'}</div>

@@ -1,6 +1,6 @@
 {
-  "name": "Studio · Quiz e Flashcard",
-  "short_name": "Studio",
+  "name": "Flash Now",
+  "short_name": "Flash Now",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f4fbf8",

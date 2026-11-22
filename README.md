@@ -1,10 +1,12 @@
-# Studio · Quizzes and Flashcards
+<img src="icon.svg" width="88" alt="">
+
+# Flash Now
 
 🇮🇹 [Versione italiana](README.it.md)
 
 A static site for studying with **flashcards** and **quizzes**, published on GitHub Pages and designed for phones.
 
-**Live site:** <https://m1ke324.github.io/studio-quiz/>
+**Live site:** <https://m1ke324.github.io/flash-now/>
 
 - Decks are plain text files in `decks/`, organised in folders and subfolders.
 - On launch the site shows a menu of folders and decks, with search.
@@ -116,7 +118,7 @@ To change the site with AI, just ask in this folder ("add a timed exam mode", "c
 
 ## Android app (APK)
 
-Download the APK from [Releases](https://github.com/M1ke324/studio-quiz/releases/latest), open it on your phone and allow installs from that source when Android asks.
+Download the APK from [Releases](https://github.com/M1ke324/flash-now/releases/latest), open it on your phone and allow installs from that source when Android asks.
 
 The app (`android/` folder) bundles the site and **works offline, without any repository**:
 

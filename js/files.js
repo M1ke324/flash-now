@@ -120,9 +120,9 @@ function toBase64(bytes) {
   return btoa(bin);
 }
 
-// Richiesta al codice nativo dell'app (canale "StudioAndroid"): una alla volta.
+// Richiesta al codice nativo dell'app (canale "FlashNowAndroid"): una alla volta.
 function nativeRequest(msg) {
-  const bridge = window.StudioAndroid;
+  const bridge = window.FlashNowAndroid;
   return new Promise((resolve) => {
     bridge.onmessage = (e) => {
       try { resolve(JSON.parse(e.data)); } catch { resolve({ ok: false }); }
@@ -133,7 +133,7 @@ function nativeRequest(msg) {
 
 export async function saveFile(name, mime, content) {
   const bytes = typeof content === 'string' ? enc.encode(content) : content;
-  if (window.StudioAndroid) {
+  if (window.FlashNowAndroid) {
     return (await nativeRequest({ type: 'save', name, mime, data: toBase64(bytes) })).ok === true;
   }
   const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
@@ -149,7 +149,7 @@ export async function saveFile(name, mime, content) {
 
 // Testo degli appunti. Nell'app lo legge il codice nativo (il WebView non lo permette al JavaScript).
 export async function readClipboard() {
-  if (window.StudioAndroid) {
+  if (window.FlashNowAndroid) {
     const r = await nativeRequest({ type: 'paste' });
     if (!r.ok) throw new Error('appunti non disponibili');
     return r.text || '';

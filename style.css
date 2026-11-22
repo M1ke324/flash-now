@@ -131,6 +131,8 @@ strong { font-weight: 600; }
 .appbar.scrolled { background: var(--surface-container); }
 .appbar h1 { flex: 1; margin: 0 0 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .appbar .brand { display: flex; align-items: center; gap: 12px; padding-left: 12px; }
+.appbar .brand img { display: block; border-radius: 9px; }
+.brand-name { font-weight: 600; font-variation-settings: "wdth" 115; }
 .appbar .brand .icon { color: var(--primary); }
 .icon-btn {
   display: grid; place-items: center; width: 48px; height: 48px; border-radius: var(--shape-full);

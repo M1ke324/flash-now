@@ -1,10 +1,12 @@
-# Studio · Quiz e Flashcard
+<img src="icon.svg" width="88" alt="">
+
+# Flash Now
 
 🇬🇧 [English version](README.md)
 
 Sito statico per ripassare con **flashcard** e **quiz**, pubblicato su GitHub Pages e pensato per il telefono.
 
-**Sito:** <https://m1ke324.github.io/studio-quiz/>
+**Sito:** <https://m1ke324.github.io/flash-now/>
 
 - I mazzi sono file di testo in `decks/`, organizzati in cartelle e sottocartelle.
 - All'avvio il sito mostra il menu delle cartelle e dei mazzi, con la ricerca.
@@ -113,7 +115,7 @@ Per modificare il sito con l'AI basta chiederlo in questa cartella ("aggiungi un
 
 ## App Android (APK)
 
-L'APK si scarica dalle [Release](https://github.com/M1ke324/studio-quiz/releases/latest): aprilo dal telefono e consenti l'installazione da quella fonte quando Android lo chiede.
+L'APK si scarica dalle [Release](https://github.com/M1ke324/flash-now/releases/latest): aprilo dal telefono e consenti l'installazione da quella fonte quando Android lo chiede.
 
 L'app (cartella `android/`) contiene il sito e **funziona senza connessione e senza repository**:
 

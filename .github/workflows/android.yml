@@ -50,11 +50,11 @@ jobs:
         run: |
           gradle assembleRelease --no-daemon --stacktrace
           mkdir -p ../dist
-          cp app/build/outputs/apk/release/app-release.apk "../dist/StudioQuiz-${VERSION_NAME}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "../dist/FlashNow-${VERSION_NAME}.apk"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: StudioQuiz-${{ env.VERSION_NAME }}
+          name: FlashNow-${{ env.VERSION_NAME }}
           path: dist/*.apk
 
       - name: Pubblica la Release
@@ -63,9 +63,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" dist/*.apk \
-            --title "Studio $VERSION_NAME" \
-            --notes "App Android di Studio · Quiz e Flashcard.
+            --title "Flash Now $VERSION_NAME" \
+            --notes "App Android di Flash Now: flashcard e quiz.
 
-          **Installazione:** scarica \`StudioQuiz-${VERSION_NAME}.apk\` dal telefono e aprilo. La prima volta Android chiede di consentire l'installazione da questa fonte (browser o file manager).
+          **Installazione:** scarica \`FlashNow-${VERSION_NAME}.apk\` dal telefono e aprilo. La prima volta Android chiede di consentire l'installazione da questa fonte (browser o file manager).
 
-          L'app mostra il sito https://m1ke324.github.io/studio-quiz/: i nuovi mazzi compaiono senza aggiornare l'APK. Serve una connessione internet."
+          L'app funziona anche offline. I mazzi online di https://m1ke324.github.io/flash-now/ sono facoltativi e si aggiornano senza installare un nuovo APK."

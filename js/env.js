@@ -5,8 +5,8 @@
 // - nell'app Android: il sito è incluso nell'APK (servito da appassets.androidplatform.net)
 //   e i mazzi online, facoltativi, vengono scaricati da SITE.
 
-export const SITE = 'https://m1ke324.github.io/studio-quiz/';
-export const REPO = { owner: 'M1ke324', repo: 'studio-quiz' };
+export const SITE = 'https://m1ke324.github.io/flash-now/';
+export const REPO = { owner: 'M1ke324', repo: 'flash-now' };
 export const IN_APP = location.hostname === 'appassets.androidplatform.net';
 const BASE = IN_APP ? SITE : '';
 
