@@ -4,6 +4,11 @@
 //   scritti nel file punteggi.json della cartella del mazzo, a mano ("Sincronizza ora")
 //   oppure dopo ogni sessione se è attiva la sincronizzazione automatica.
 // - Quando si visualizzano i punteggi si uniscono quelli del repo e quelli locali (per id).
+// - I mazzi "Sul dispositivo" (cartelle che iniziano con "~") non hanno un file nel repository:
+//   i loro punteggi restano solo sul dispositivo e non vengono sincronizzati.
+
+import { IN_APP, REPO, onlineEnabled, getRemoteText } from './env.js';
+import { isLocal } from './library.js';
 
 const LS_LOCAL = 'sq.risultati';
 const LS_SYNCED = 'sq.sincronizzati';
@@ -30,6 +35,7 @@ export function saveSettings(s) { writeLS(LS_SETTINGS, s); }
 
 // Ricava owner/repo dall'indirizzo GitHub Pages (utente.github.io/repo/).
 function guessRepo() {
+  if (IN_APP) return REPO;
   const m = location.hostname.match(/^([^.]+)\.github\.io$/i);
   if (!m) return {};
   const first = location.pathname.split('/').filter(Boolean)[0];
@@ -42,9 +48,10 @@ export const scoresPath = (folder) => (folder ? `decks/${folder}/punteggi.json` 
 // ---------- lettura ----------
 const remoteCache = new Map();
 async function fetchRemote(folder) {
+  if (isLocal(folder) || !onlineEnabled()) return [];
   if (!remoteCache.has(folder)) {
-    remoteCache.set(folder, fetch(scoresPath(folder), { cache: 'no-cache' })
-      .then((r) => (r.ok ? r.json() : { risultati: [] }))
+    remoteCache.set(folder, getRemoteText(scoresPath(folder))
+      .then((t) => (t ? JSON.parse(t) : {}))
       .then((j) => (Array.isArray(j.risultati) ? j.risultati : []))
       .catch(() => []));
   }
@@ -89,7 +96,7 @@ export const canSync = () => { const s = getSettings(); return !!(s.token && s.o
 
 export function unsynced() {
   const synced = new Set(readLS(LS_SYNCED, []));
-  return readLS(LS_LOCAL, []).filter((r) => !synced.has(r.id));
+  return readLS(LS_LOCAL, []).filter((r) => !synced.has(r.id) && !isLocal(r.cartella));
 }
 
 // Invia al repository tutti i risultati non ancora sincronizzati.

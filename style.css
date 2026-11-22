@@ -358,3 +358,34 @@ main {
 .sync-banner { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 12px 16px; border-radius: var(--shape-l); background: var(--tertiary-container); color: var(--on-tertiary-container); text-decoration: none; font-size: 14px; font-weight: 500; }
 .sync-banner span:not(.icon) { flex: 1; }
 .setting-row .variant { display: block; }
+
+/* ---------- libreria sul dispositivo ---------- */
+.local-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.local-actions .btn { flex: 1 1 auto; }
+.btn.danger { color: var(--error); }
+.btn.outlined.danger { border-color: var(--outline-variant); }
+.offline-note { display: flex; align-items: center; gap: 12px; margin: 12px 4px 0; color: var(--on-surface-variant); }
+.offline-note .icon { color: var(--outline); }
+.headline-s { font-size: 24px; line-height: 32px; font-weight: 400; margin: 0 0 16px; }
+
+.editor-page { display: flex; flex-direction: column; gap: 12px; }
+.editor-page > p { margin: 4px 4px 0; }
+.editor {
+  width: 100%; min-height: 50vh; resize: vertical; padding: 16px;
+  font: 14px/22px ui-monospace, "Roboto Mono", monospace; letter-spacing: 0; tab-size: 2;
+  color: var(--on-surface); background: var(--surface-container-lowest);
+  border: 1px solid var(--outline); border-radius: var(--shape-m); outline: none;
+}
+.editor:focus { border: 2px solid var(--primary); padding: 15px; }
+.check { display: flex; gap: 12px; align-items: flex-start; margin: 0; padding: 12px 16px; border-radius: var(--shape-m); }
+.check.good { background: var(--success-container); color: var(--on-success-container); }
+.check.bad { background: var(--error-container); color: var(--on-error-container); }
+
+/* dialog M3 */
+.m3-dialog {
+  width: min(400px, calc(100% - 48px)); padding: 24px; border: 0; border-radius: var(--shape-xl);
+  background: var(--surface-container-high); color: var(--on-surface);
+}
+.m3-dialog::backdrop { background: rgb(0 0 0 / 32%); }
+.m3-dialog .field { margin-top: 8px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }

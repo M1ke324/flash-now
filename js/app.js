@@ -1,5 +1,7 @@
 import { parseDeck, normalizeAnswer } from './parser.js';
 import * as scores from './scores.js';
+import * as library from './library.js';
+import { IN_APP, onlineEnabled, setOnlineEnabled, getRemoteText } from './env.js';
 
 const $app = document.getElementById('app');
 let manifest = null;
@@ -81,7 +83,9 @@ function fmtDate(iso) {
   return d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
 }
 const fmtDur = (s) => (s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`);
-const folderName = (f) => (f ? f.split('/').pop().replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Studio');
+const LOCAL_NAME = 'Sul dispositivo';
+const folderName = (f) => (f === library.ROOT ? LOCAL_NAME : f ? f.split('/').pop().replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Studio');
+const folderLabel = (f) => (library.isLocal(f) ? [LOCAL_NAME, ...f.split('/').slice(1)].join('/') : f);
 const pctClass = (p) => (p >= 80 ? 'good' : p >= 50 ? 'mid' : 'bad');
 const typeIcon = (t) => (t === 'quiz' ? 'quiz' : 'style');
 const unit = (t, n) => (t === 'quiz' ? (n === 1 ? 'domanda' : 'domande') : (n === 1 ? 'carta' : 'carte'));
@@ -124,18 +128,58 @@ function snackbar(text) {
   snackTimer = setTimeout(() => el.classList.remove('show'), 4500);
 }
 
-async function loadManifest() {
-  if (manifest) return manifest;
-  const r = await fetch('decks.json', { cache: 'no-cache' });
-  if (!r.ok) throw new Error('Manca decks.json. Generalo con "node scripts/build-manifest.mjs" e ricarica la pagina.');
-  manifest = await r.json();
+// Indice = mazzi online (decks.json del sito, facoltativo) + mazzi sul dispositivo.
+let remote = null;
+let remoteState = 'off'; // 'ok' | 'error' | 'off'
+async function loadManifest(retry = false) {
+  if (!onlineEnabled()) {
+    remote = { cartelle: [''], mazzi: [] };
+    remoteState = 'off';
+  } else if (remote === null || remoteState === 'off' || (retry && remoteState === 'error')) {
+    try {
+      const t = await getRemoteText('decks.json');
+      remote = t ? JSON.parse(t) : { cartelle: [''], mazzi: [] };
+      remoteState = t ? 'ok' : 'error';
+    } catch {
+      remote = { cartelle: [''], mazzi: [] };
+      remoteState = 'error';
+    }
+  }
+  const local = library.manifest();
+  manifest = { cartelle: [...remote.cartelle, ...local.cartelle], mazzi: [...remote.mazzi, ...local.mazzi] };
   return manifest;
 }
 
 async function loadDeck(path) {
-  const r = await fetch(path, { cache: 'no-cache' });
-  if (!r.ok) throw new Error(`Non riesco a caricare ${path} (HTTP ${r.status}).`);
-  return parseDeck(await r.text());
+  const text = library.isLocal(path) ? library.readDeck(path) : await getRemoteText(path).catch(() => null);
+  if (text === null) throw new Error('Mazzo non disponibile. Se è un mazzo online, serve la connessione per scaricarlo la prima volta.');
+  return parseDeck(text);
+}
+
+// ---------- finestre di dialogo (M3) ----------
+function dialog({ title, text = '', input = null, confirm = 'OK', danger = false }) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'm3-dialog';
+    dlg.innerHTML = `<form method="dialog">
+      <h2 class="headline-s">${esc(title)}</h2>
+      ${text ? `<p class="body-m variant">${esc(text)}</p>` : ''}
+      ${input !== null ? `<div class="field"><label for="dlg-in">${esc(input)}</label><input id="dlg-in" autocomplete="off" required></div>` : ''}
+      <div class="dialog-actions">
+        <button class="btn text" value="cancel" formnovalidate>Annulla</button>
+        <button class="btn ${danger ? 'text danger' : 'text'}" value="ok">${esc(confirm)}</button>
+      </div>
+    </form>`;
+    document.body.append(dlg);
+    dlg.addEventListener('close', () => {
+      const ok = dlg.returnValue === 'ok';
+      const val = input !== null ? dlg.querySelector('input').value.trim() : true;
+      dlg.remove();
+      resolve(ok ? val : null);
+    });
+    dlg.showModal();
+    dlg.querySelector('input')?.focus();
+  });
 }
 
 // ---------- router ----------
@@ -143,10 +187,12 @@ async function route() {
   const h = decodeURIComponent(location.hash.slice(1) || '/');
   if (session && !h.startsWith('/gioca/')) stopSession();
   try {
-    await loadManifest();
+    await loadManifest(h === '/');
     if (h.startsWith('/cartella/')) return viewFolder(h.slice('/cartella/'.length));
     if (h.startsWith('/mazzo/')) return viewDeck(h.slice('/mazzo/'.length));
     if (h.startsWith('/gioca/')) return session ? null : go(`#/mazzo/${encPath(h.slice('/gioca/'.length))}`);
+    if (h.startsWith('/nuovo/')) return viewEditor({ folder: h.slice('/nuovo/'.length) });
+    if (h.startsWith('/modifica/')) return viewEditor({ path: h.slice('/modifica/'.length) });
     if (h === '/impostazioni') return viewSettings();
     return viewFolder('');
   } catch (e) {
@@ -159,14 +205,17 @@ window.addEventListener('hashchange', route);
 async function viewFolder(folder) {
   const m = manifest;
   if (folder && !m.cartelle.includes(folder)) return go('#/');
-  const parentOf = (f) => (f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '');
-  const subs = m.cartelle.filter((f) => f && parentOf(f) === folder);
+  const parentOf = library.parentOf;
+  const local = library.isLocal(folder);
+  const subs = m.cartelle.filter((f) => f && parentOf(f) === folder)
+    .sort((a, b) => (b === library.ROOT) - (a === library.ROOT));
   const decks = m.mazzi.filter((d) => d.cartella === folder);
   const countIn = (f) => m.mazzi.filter((d) => d.cartella === f || d.cartella.startsWith(f + '/')).length;
 
   const results = await scores.folderResults(folder);
   const lastOf = (d) => results.find((r) => r.mazzo === d.path);
   const back = folder ? (parentOf(folder) ? `#/cartella/${encPath(parentOf(folder))}` : '#/') : null;
+  const pending = scores.canSync() ? scores.unsynced().length : 0;
 
   render(`${appbar(folderName(folder), back)}
   <main>
@@ -174,16 +223,26 @@ async function viewFolder(folder) {
     <label class="searchbar">${icon('search')}<input type="search" id="search" placeholder="Cerca un mazzo" autocomplete="off" aria-label="Cerca un mazzo"></label>
     <div id="search-results" class="list"></div>` : ''}
     <div id="browse">
-    ${!folder && scores.canSync() && scores.unsynced().length ? `<a class="sync-banner state" href="#/impostazioni">${icon('sync')}<span>${scores.unsynced().length} ${scores.unsynced().length === 1 ? 'sessione da sincronizzare' : 'sessioni da sincronizzare'} con GitHub</span>${icon('chevron_right')}</a>` : ''}
+    ${!folder && pending ? `<a class="sync-banner state" href="#/impostazioni">${icon('sync')}<span>${pending} ${pending === 1 ? 'sessione da sincronizzare' : 'sessioni da sincronizzare'} con GitHub</span>${icon('chevron_right')}</a>` : ''}
+    ${local ? `<div class="local-actions">
+      <a class="btn filled" href="#/nuovo/${encPath(folder)}">${icon('add')}Nuovo mazzo</a>
+      <button class="btn tonal" id="import">${icon('upload_file')}Importa file</button>
+      <button class="btn tonal" id="new-folder">${icon('create_new_folder')}Nuova cartella</button>
+      <input type="file" id="file" accept=".md,.txt,text/markdown,text/plain" multiple hidden>
+    </div>` : ''}
     ${subs.length ? `<div class="subhead title-s">Cartelle</div><div class="list">${subs.map((f) => `
       <a class="item state" href="#/cartella/${encPath(f)}">
-        <span class="avatar folder">${icon('folder', 'fill')}</span>
+        <span class="avatar folder">${icon(f === library.ROOT ? 'smartphone' : 'folder', 'fill')}</span>
         <span class="item-main"><span class="headline">${esc(folderName(f))}</span><span class="support">${countIn(f)} ${countIn(f) === 1 ? 'mazzo' : 'mazzi'}</span></span>
         ${icon('chevron_right', 'trail')}
       </a>`).join('')}</div>` : ''}
+    ${!folder && remoteState === 'error' ? `<p class="offline-note body-m">${icon('cloud_off')}Mazzi online non disponibili senza connessione. I mazzi sul dispositivo funzionano lo stesso.</p>` : ''}
     ${decks.length ? `<div class="subhead title-s">Mazzi</div><div class="list">${decks.map((d) => deckItem(d, lastOf(d))).join('')}</div>` : ''}
-    ${!subs.length && !decks.length ? `<div class="empty">${icon('folder')}<p>Questa cartella è vuota. Aggiungi un file .md in <code>decks/${esc(folder)}</code> per creare un mazzo.</p></div>` : ''}
+    ${folder && !subs.length && !decks.length ? `<div class="empty">${icon(local ? 'smartphone' : 'folder')}<p>${local
+    ? 'Nessun mazzo qui. Creane uno, incolla quello generato da un\'AI oppure importa un file .md.'
+    : `Questa cartella è vuota. Aggiungi un file .md in <code>decks/${esc(folder)}</code> per creare un mazzo.`}</p></div>` : ''}
     ${results.length ? `<div class="subhead title-s">Attività recente</div>${resultList(results.slice(0, 6), true)}` : ''}
+    ${local && folder !== library.ROOT ? `<div class="btn-col"><button class="btn text danger" id="del-folder">${icon('delete')}Elimina cartella</button></div>` : ''}
     </div>
   </main>`);
 
@@ -194,18 +253,56 @@ async function viewFolder(folder) {
       const $r = document.getElementById('search-results');
       document.getElementById('browse').hidden = !!q;
       $r.innerHTML = q
-        ? m.mazzi.filter((d) => normalizeAnswer(`${d.titolo} ${d.descrizione} ${d.cartella}`).includes(q)).map((d) => deckItem(d, null, true)).join('')
+        ? m.mazzi.filter((d) => normalizeAnswer(`${d.titolo} ${d.descrizione} ${folderLabel(d.cartella)}`).includes(q)).map((d) => deckItem(d, null, true)).join('')
           || `<div class="empty">${icon('search')}<p>Nessun mazzo contiene “${esc($s.value)}”.</p></div>`
         : '';
     });
   }
+  if (!local) return;
+
+  document.getElementById('new-folder').addEventListener('click', async () => {
+    const name = await dialog({ title: 'Nuova cartella', input: 'Nome della cartella', confirm: 'Crea' });
+    if (!name) return;
+    try {
+      const id = library.addFolder(folder, name);
+      go(`#/cartella/${encPath(id)}`);
+    } catch (e) { snackbar(e.message); }
+  });
+  const $file = document.getElementById('file');
+  document.getElementById('import').addEventListener('click', () => $file.click());
+  $file.addEventListener('change', async () => {
+    let ok = 0;
+    const skipped = [];
+    for (const f of $file.files) {
+      const text = await f.text();
+      if (!parseDeck(text).items.length) { skipped.push(f.name); continue; }
+      try {
+        library.saveDeck(text, { folder, name: f.name.replace(/\.(md|txt|markdown)$/i, '') });
+        ok++;
+      } catch (e) { snackbar(e.message); return; }
+    }
+    await route();
+    snackbar(`${ok === 1 ? 'Importato 1 mazzo' : `Importati ${ok} mazzi`}${skipped.length ? `. Saltati perché non nel formato dei mazzi: ${skipped.join(', ')}` : ''}`);
+  });
+  document.getElementById('del-folder')?.addEventListener('click', async () => {
+    const n = countIn(folder);
+    const yes = await dialog({
+      title: `Eliminare “${folderName(folder)}”?`,
+      text: n ? `Verranno eliminati anche ${n === 1 ? 'il mazzo' : `i ${n} mazzi`} che contiene. I punteggi restano nello storico.` : 'La cartella è vuota.',
+      confirm: 'Elimina', danger: true,
+    });
+    if (!yes) return;
+    library.deleteFolder(folder);
+    location.replace(`#/cartella/${encPath(parentOf(folder))}`);
+    snackbar('Cartella eliminata');
+  });
 }
 
 function deckItem(d, last, showFolder = false) {
   return `<a class="item state" href="#/mazzo/${encPath(d.path)}">
     <span class="avatar ${d.tipo}">${icon(typeIcon(d.tipo))}</span>
     <span class="item-main"><span class="headline">${esc(d.titolo)}</span>
-      <span class="support">${d.n} ${unit(d.tipo, d.n)}${showFolder && d.cartella ? ` in ${esc(d.cartella)}` : ''}</span></span>
+      <span class="support">${d.n} ${unit(d.tipo, d.n)}${showFolder && d.cartella ? ` in ${esc(folderLabel(d.cartella))}` : ''}</span></span>
     ${last ? `<span class="score-chip ${pctClass(last.percentuale)}">${last.percentuale}%</span>` : icon('chevron_right', 'trail')}
   </a>`;
 }
@@ -221,6 +318,129 @@ function resultList(list, withDeck) {
       </span>
       <span class="trail-text">${fmtDate(r.data)}</span>
     </div>`).join('')}</div>`;
+}
+
+// ---------- editor (mazzi sul dispositivo) ----------
+const TEMPLATES = {
+  flashcard: `---
+titolo: Nuovo mazzo
+tipo: flashcard
+---
+
+D: Domanda (fronte della carta)
+R: Risposta (retro della carta)
+
+D: Seconda domanda
+R: Seconda risposta
+`,
+  quiz: `---
+titolo: Nuovo quiz
+tipo: quiz
+---
+
+D: Domanda a scelta singola?
+- [ ] Opzione sbagliata
+- [x] Opzione corretta
+- [ ] Opzione sbagliata
+S: Spiegazione facoltativa.
+
+D: Domanda con risposta da scrivere?
+R: risposta | variante accettata
+`,
+};
+
+const AI_PROMPT = `Trasforma gli appunti che ti incollo in un mazzo di studio nel formato seguente. Rispondi solo con il contenuto del file, senza commenti.
+
+Intestazione:
+---
+titolo: <titolo breve>
+tipo: flashcard   (oppure: quiz)
+---
+
+Flashcard: ogni carta è
+D: <domanda, una sola idea>
+R: <risposta breve>
+
+Quiz: ogni domanda è
+D: <domanda>
+- [ ] <opzione sbagliata ma plausibile>
+- [x] <opzione corretta>   (più [x] = scelta multipla)
+S: <spiegazione breve>
+oppure, per una risposta da scrivere:
+D: <domanda>
+R: <risposta> | <variante accettata>
+
+Regole: D:, R:, S: e le opzioni stanno a inizio riga; una riga senza marcatore continua quella precedente; usa solo informazioni presenti negli appunti.
+
+Appunti:
+`;
+
+function viewEditor({ folder = null, path = null }) {
+  const isNew = !path;
+  if (isNew && !(library.isLocal(folder) && manifest.cartelle.includes(folder))) return go('#/');
+  if (!isNew && (!library.isLocal(path) || library.readDeck(path) === null)) return go('#/');
+  const back = isNew ? `#/cartella/${encPath(folder)}` : `#/mazzo/${encPath(path)}`;
+  const initial = isNew ? TEMPLATES.flashcard : library.readDeck(path);
+
+  render(`${appbar(isNew ? 'Nuovo mazzo' : 'Modifica mazzo', back)}
+  <main class="editor-page">
+    ${isNew ? `<div class="segmented" role="radiogroup" aria-label="Tipo di mazzo">
+      <label><input type="radio" name="tpl" value="flashcard" checked><span>${icon('check')}Flashcard</span></label>
+      <label><input type="radio" name="tpl" value="quiz"><span>${icon('check')}Quiz</span></label>
+    </div>` : ''}
+    <p class="body-m variant">Scrivi il mazzo qui sotto oppure incolla quello generato da un'AI. Per farlo generare, copia le istruzioni per l'AI e aggiungi i tuoi appunti.</p>
+    <button class="btn outlined" id="copy-prompt">Copia le istruzioni per l'AI</button>
+    <textarea id="src" class="editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Testo del mazzo">${esc(initial)}</textarea>
+    <p id="check" class="check body-m" role="status"></p>
+    <div class="btn-row">
+      <a class="btn outlined" href="${back}">Annulla</a>
+      <button class="btn filled" id="save">${icon('save')}Salva</button>
+    </div>
+  </main>`);
+
+  const $src = document.getElementById('src');
+  const $check = document.getElementById('check');
+  let touched = false;
+  const validate = () => {
+    const deck = parseDeck($src.value);
+    const n = deck.items.length;
+    $check.className = `check body-m ${deck.errors.length ? 'bad' : 'good'}`;
+    $check.innerHTML = deck.errors.length
+      ? `${icon('cancel', 'fill')}<span>${deck.errors.map(esc).join('<br>')}</span>`
+      : `${icon('check_circle', 'fill')}<span>${n} ${unit(deck.type, n)}, nessun errore</span>`;
+    return deck;
+  };
+  $src.addEventListener('input', () => { touched = true; validate(); });
+  validate();
+
+  document.querySelectorAll('[name=tpl]').forEach((r) => r.addEventListener('change', async () => {
+    if (touched && !(await dialog({ title: 'Sostituire il testo?', text: 'Il testo scritto finora verrà sostituito dal modello.', confirm: 'Sostituisci' }))) {
+      document.querySelector(`[name=tpl][value=${r.value === 'quiz' ? 'flashcard' : 'quiz'}]`).checked = true;
+      return;
+    }
+    $src.value = TEMPLATES[r.value];
+    touched = false;
+    validate();
+  }));
+
+  document.getElementById('copy-prompt').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(AI_PROMPT);
+      snackbar('Istruzioni copiate: incollale nella chat dell\'AI insieme ai tuoi appunti');
+    } catch {
+      snackbar('Copia non riuscita su questo dispositivo');
+    }
+  });
+
+  document.getElementById('save').addEventListener('click', () => {
+    const deck = validate();
+    if (!deck.items.length) return snackbar('Il mazzo non contiene domande: ogni domanda inizia con "D:"');
+    try {
+      const saved = library.saveDeck($src.value, isNew ? { folder } : { path });
+      location.replace(`#/mazzo/${encPath(saved)}`);
+      snackbar(deck.errors.length ? 'Mazzo salvato, ma contiene errori da correggere' : 'Mazzo salvato');
+    } catch (e) { snackbar(e.message); }
+  });
 }
 
 // ---------- vista mazzo ----------
@@ -270,6 +490,10 @@ async function viewDeck(path) {
         ${!isQuiz ? '<label class="setting-row"><span>Mostra prima la risposta</span><input class="switch" type="checkbox" name="reverse"></label>' : ''}
         <button class="btn filled large" type="submit">${icon('play_arrow', 'fill')}Inizia</button>
       </form>
+      ${library.isLocal(path) ? `<div class="btn-row">
+        <a class="btn outlined" href="#/modifica/${encPath(path)}">${icon('edit')}Modifica</a>
+        <button class="btn outlined danger" id="del-deck">${icon('delete')}Elimina</button>
+      </div>` : ''}
     </section>
     ${hardest.length ? `<div class="subhead title-s">${isQuiz ? 'Domande' : 'Carte'} che sbagli più spesso</div>
       <div class="list">${hardest.map(({ it, s }) => `
@@ -282,6 +506,13 @@ async function viewDeck(path) {
       <div class="chart" aria-label="Percentuali degli ultimi ${chartData.length} tentativi">${chartData.map((r) => `<span class="${pctClass(r.percentuale)}" style="height:${Math.max(4, r.percentuale)}%" title="${r.percentuale}%"></span>`).join('')}</div>
       ${resultList(results.slice(0, 10), false)}` : ''}
   </main>`);
+
+  document.getElementById('del-deck')?.addEventListener('click', async () => {
+    if (!(await dialog({ title: `Eliminare “${d.titolo}”?`, text: 'Il mazzo verrà eliminato da questo dispositivo. I punteggi restano nello storico.', confirm: 'Elimina', danger: true }))) return;
+    library.deleteDeck(path);
+    location.replace(`#/cartella/${encPath(d.cartella)}`);
+    snackbar('Mazzo eliminato');
+  });
 
   const $form = document.getElementById('start');
   const $count = document.getElementById('count');
@@ -580,6 +811,11 @@ function viewSettings() {
   const field = (name, label, value, extra = '') => `<div class="field"><label for="f-${name}">${label}</label><input id="f-${name}" name="${name}" value="${esc(value)}" autocapitalize="off" autocomplete="off" spellcheck="false" ${extra}></div>`;
   render(`${appbar('Impostazioni', '#/')}
   <main>
+    ${IN_APP ? `<section class="card">
+      <h2 class="title-l">Mazzi online</h2>
+      <p class="body-m variant">I mazzi del sito vengono scaricati quando c'è connessione e restano disponibili offline. Spegnendo questa opzione l'app non usa internet e mostra solo i mazzi sul dispositivo.</p>
+      <label class="setting-row"><span>Carica i mazzi online</span><input class="switch" type="checkbox" id="online" ${onlineEnabled() ? 'checked' : ''}></label>
+    </section>` : ''}
     <section class="card">
       <h2 class="title-l">Punteggi sul dispositivo</h2>
       <p class="body-m variant">Ogni punteggio viene salvato prima di tutto su questo dispositivo e funziona anche senza GitHub.</p>
@@ -592,7 +828,7 @@ function viewSettings() {
     </section>
     <section class="card">
       <h2 class="title-l">Sincronizzazione con GitHub</h2>
-      <p class="body-m variant">Facoltativa. Copia i punteggi nel file <code>punteggi.json</code> della cartella di ogni mazzo, così li vedi da tutti i dispositivi e restano nel repository.</p>
+      <p class="body-m variant">Facoltativa, e solo per i mazzi online: i punteggi dei mazzi sul dispositivo restano sul dispositivo. Copia i punteggi nel file <code>punteggi.json</code> della cartella di ogni mazzo, così li vedi da tutti i dispositivi e restano nel repository.</p>
       <p class="body-m variant">Serve un <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">fine-grained token</a> limitato a questo repository, con il permesso <strong>Contents: Read and write</strong>. Il token resta salvato solo su questo dispositivo.</p>
       <form id="gh" class="settings-form">
         ${field('owner', 'Utente o organizzazione', s.owner, 'required')}
@@ -610,6 +846,12 @@ function viewSettings() {
       </div>
     </section>
   </main>`);
+
+  document.getElementById('online')?.addEventListener('change', (e) => {
+    setOnlineEnabled(e.target.checked);
+    remote = null;
+    snackbar(e.target.checked ? 'Mazzi online attivati' : 'Mazzi online disattivati: l\'app funziona senza connessione');
+  });
 
   const read = () => {
     const f = new FormData(document.getElementById('gh'));

@@ -39,3 +39,16 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.18.0'
+}
+
+// Copia il sito (radice del repository) negli asset dell'app prima di ogni build.
+def copyWeb = tasks.register('copyWeb', Sync) {
+    from(rootProject.file('..')) {
+        include 'index.html', 'style.css', 'app.webmanifest', 'icon.svg', 'js/**', 'fonts/**'
+    }
+    into file('src/main/assets/www')
+}
+tasks.named('preBuild') { dependsOn copyWeb }
