@@ -24,6 +24,7 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.window.OnBackInvokedDispatcher;
 
+import androidx.core.content.FileProvider;
 import androidx.webkit.JavaScriptReplyProxy;
 import androidx.webkit.WebViewAssetLoader;
 import androidx.webkit.WebViewCompat;
@@ -31,7 +32,12 @@ import androidx.webkit.WebViewFeature;
 
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.Collections;
 
 /**
@@ -51,6 +57,8 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private byte[] pendingSave;
     private JavaScriptReplyProxy pendingReply;
+    private int pendingId;
+    private File pendingInstall;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -127,7 +135,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        // Canale "FlashNowAndroid" per l'esportazione: solo il sito incluso nell'app può usarlo.
+        // Canale "FlashNowAndroid" (file, appunti, versione, aggiornamenti): solo il sito incluso nell'app può usarlo.
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             WebViewCompat.addWebMessageListener(web, "FlashNowAndroid",
                     Collections.singleton("https://" + HOST),
@@ -143,27 +151,126 @@ public class MainActivity extends Activity {
         else web.loadUrl(START);
     }
 
-    // Messaggi dal JavaScript:
-    //   {"type":"save","name":"...","mime":"...","data":"<base64>"} -> {"ok":true|false}
-    //   {"type":"paste"} -> {"ok":true,"text":"..."}
+    // Messaggi dal JavaScript (ogni richiesta ha un "id", ripetuto nella risposta):
+    //   {"type":"save","name","mime","data":"<base64>"} -> {"ok":true|false}
+    //   {"type":"paste"}                                -> {"ok":true,"text":"..."}
+    //   {"type":"version"}                              -> {"ok":true,"version":"1.6.0"}
+    //   {"type":"update","url":"https://...apk"}        -> {"progress":0..100}..., poi {"ok":true|false}
     private void onWebMessage(String json, JavaScriptReplyProxy reply) {
+        int id = 0;
         try {
             JSONObject m = new JSONObject(json);
-            if ("paste".equals(m.optString("type"))) {
-                reply.postMessage(clipboardReply().toString());
-                return;
+            id = m.optInt("id");
+            switch (m.optString("type")) {
+                case "paste":
+                    send(reply, clipboardReply().put("id", id));
+                    break;
+                case "version":
+                    String v = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+                    send(reply, new JSONObject().put("id", id).put("ok", true).put("version", v));
+                    break;
+                case "save":
+                    pendingSave = Base64.decode(m.getString("data"), Base64.DEFAULT);
+                    pendingReply = reply;
+                    pendingId = id;
+                    Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    i.setType(m.optString("mime", "application/octet-stream"));
+                    i.putExtra(Intent.EXTRA_TITLE, m.optString("name", "export"));
+                    startActivityForResult(i, SAVE_FILE);
+                    break;
+                case "update":
+                    downloadUpdate(m.getString("url"), reply, id);
+                    break;
+                default:
+                    send(reply, new JSONObject().put("id", id).put("ok", false));
             }
-            if (!"save".equals(m.optString("type"))) return;
-            pendingSave = Base64.decode(m.getString("data"), Base64.DEFAULT);
-            pendingReply = reply;
-            Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-            i.addCategory(Intent.CATEGORY_OPENABLE);
-            i.setType(m.optString("mime", "application/octet-stream"));
-            i.putExtra(Intent.EXTRA_TITLE, m.optString("name", "export"));
-            startActivityForResult(i, SAVE_FILE);
         } catch (Exception e) {
-            reply.postMessage("{\"ok\":false}");
+            sendResult(reply, id, false, e.getMessage());
         }
+    }
+
+    private void send(JavaScriptReplyProxy reply, JSONObject msg) {
+        runOnUiThread(() -> reply.postMessage(msg.toString()));
+    }
+
+    private void sendResult(JavaScriptReplyProxy reply, int id, boolean ok, String error) {
+        try {
+            JSONObject r = new JSONObject().put("id", id).put("ok", ok);
+            if (error != null) r.put("error", error);
+            send(reply, r);
+        } catch (Exception ignored) {
+        }
+    }
+
+    // ---------- aggiornamento dell'app ----------
+    // Scarica l'APK della nuova versione nella cache e avvia l'installazione di Android.
+    private void downloadUpdate(String url, JavaScriptReplyProxy reply, int id) {
+        if (!url.startsWith("https://github.com/M1ke324/flash-now/releases/download/")) {
+            sendResult(reply, id, false, "indirizzo non valido");
+            return;
+        }
+        new Thread(() -> {
+            File dir = new File(getCacheDir(), "updates");
+            File apk = new File(dir, "FlashNow-update.apk");
+            try {
+                dir.mkdirs();
+                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                c.setInstanceFollowRedirects(true);
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(30000);
+                if (c.getResponseCode() != 200) throw new Exception("HTTP " + c.getResponseCode());
+                long total = c.getContentLengthLong();
+                long done = 0;
+                int last = -1;
+                try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(apk)) {
+                    byte[] buf = new byte[64 * 1024];
+                    for (int n; (n = in.read(buf)) > 0; ) {
+                        out.write(buf, 0, n);
+                        done += n;
+                        int pct = total > 0 ? (int) (done * 100 / total) : 0;
+                        if (pct != last) {
+                            last = pct;
+                            send(reply, new JSONObject().put("id", id).put("progress", pct));
+                        }
+                    }
+                }
+                runOnUiThread(() -> {
+                    boolean needPermission = !getPackageManager().canRequestPackageInstalls();
+                    pendingInstall = apk;
+                    if (needPermission) {
+                        // Android chiede una volta di consentire a Flash Now di installare app.
+                        startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:" + getPackageName())));
+                    } else {
+                        installPending();
+                    }
+                    try {
+                        send(reply, new JSONObject().put("id", id).put("ok", true).put("permission", needPermission));
+                    } catch (Exception ignored) {
+                    }
+                });
+            } catch (Exception e) {
+                sendResult(reply, id, false, e.getMessage());
+            }
+        }).start();
+    }
+
+    private void installPending() {
+        if (pendingInstall == null || !pendingInstall.exists()) return;
+        Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".files", pendingInstall);
+        Intent i = new Intent(Intent.ACTION_VIEW);
+        i.setDataAndType(uri, "application/vnd.android.package-archive");
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        pendingInstall = null;
+        startActivity(i);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Di ritorno dalle impostazioni: se il permesso ora c'è, si prosegue con l'installazione.
+        if (pendingInstall != null && getPackageManager().canRequestPackageInstalls()) installPending();
     }
 
     private JSONObject clipboardReply() throws org.json.JSONException {
@@ -192,7 +299,7 @@ public class MainActivity extends Activity {
                 } catch (Exception ignored) {
                 }
             }
-            if (pendingReply != null) pendingReply.postMessage(ok ? "{\"ok\":true}" : "{\"ok\":false}");
+            if (pendingReply != null) sendResult(pendingReply, pendingId, ok, null);
             pendingSave = null;
             pendingReply = null;
             return;

@@ -7,7 +7,7 @@
 // - I mazzi "Sul dispositivo" (cartelle che iniziano con "~") non hanno un file nel repository:
 //   i loro punteggi restano solo sul dispositivo e non vengono sincronizzati.
 
-import { IN_APP, REPO, onlineEnabled, getRemoteText } from './env.js';
+import { IN_APP, REPO, onlineEnabled, getRemoteText, advanced } from './env.js';
 import { isLocal } from './library.js';
 
 const LS_LOCAL = 'sq.risultati';
@@ -92,7 +92,8 @@ export function addResult(deck, { punti, totale, durata, modo, risposte }) {
 }
 
 export const localCount = () => readLS(LS_LOCAL, []).length;
-export const canSync = () => { const s = getSettings(); return !!(s.token && s.owner && s.repo); };
+// La sincronizzazione esiste solo in modalità avanzata.
+export const canSync = () => { const s = getSettings(); return advanced() && !!(s.token && s.owner && s.repo); };
 
 // Dopo lo spostamento di un mazzo locale, lo storico segue il nuovo percorso.
 export function renameDeck(from, to, folder) {

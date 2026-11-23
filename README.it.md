@@ -31,7 +31,7 @@ La pagina del mazzo mostra anche l'elenco delle domande che sbagli più spesso.
 ## Guida rapida
 
 **Crea flashcard con l'AI (dall'app o dal sito)**
-1. Apri **Sul dispositivo** → **Nuovo mazzo**, scegli *Flashcard* o *Quiz*.
+1. Nella home tocca **Nuovo mazzo**, scegli *Flashcard* o *Quiz*.
 2. Tocca **Istruzioni per l'AI**: vengono copiate.
 3. In ChatGPT, Claude o Gemini incolla le istruzioni, aggiungi sotto i tuoi appunti e invia.
 4. Copia la risposta, torna all'editor, tocca **Incolla** (sostituisce l'esempio) e poi **Salva**.
@@ -40,7 +40,11 @@ Il riquadro sotto l'editor è verde se il formato è giusto, rosso con il numero
 
 **Studia**: tocca la carta per girarla (flashcard) o la risposta (quiz). **Punti deboli** ripropone prima quello che sbagli di più.
 
-**Organizza**: nella pagina di un mazzo trovi **Sposta** ed **Elimina**; in una cartella, **Seleziona** permette di spostare o eliminare più mazzi insieme.
+**Organizza**: **tieni premuto** un mazzo o una cartella per rinominarlo, spostarlo, esportarlo o eliminarlo. Quelli con la nuvola sono online: puoi copiarli sul dispositivo o nasconderli. **Seleziona** sposta o elimina più mazzi insieme.
+
+**Aggiornamenti**: quando esce una nuova versione, l'app lo segnala in home e la scarica con **Aggiorna**.
+
+**Modalità avanzata** (Impostazioni): sincronizzazione dei punteggi con il repository tramite token GitHub. Non serve per l'uso normale.
 
 **Conserva**: **Esporta** salva un mazzo (.md) o una cartella (.zip), **Importa file** li ricarica. Fallo ogni tanto come backup.
 

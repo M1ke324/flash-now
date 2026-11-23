@@ -17,9 +17,9 @@ export const parentOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/'))
 function load() {
   try {
     const d = JSON.parse(localStorage.getItem(KEY));
-    if (d && Array.isArray(d.cartelle) && d.mazzi) return d;
+    if (d && Array.isArray(d.cartelle) && d.mazzi) { d.nomi ||= {}; return d; }
   } catch { /* dati assenti o corrotti */ }
-  return { cartelle: [], mazzi: {} };
+  return { cartelle: [], mazzi: {}, nomi: {} };
 }
 
 function store(d) {
@@ -53,6 +53,59 @@ export function manifest() {
   return { cartelle: [ROOT, ...d.cartelle].sort((a, b) => a.localeCompare(b, 'it')), mazzi };
 }
 
+// Nome visualizzato di una cartella (quello scritto dall'utente, con maiuscole e spazi).
+export function folderTitle(id) {
+  const n = load().nomi[id];
+  if (n) return n;
+  const last = id.split('/').pop().replace(/[-_]/g, ' ');
+  return last.charAt(0).toUpperCase() + last.slice(1);
+}
+
+export function renameFolder(id, name) {
+  const d = load();
+  d.nomi[id] = name.trim();
+  store(d);
+}
+
+// Sposta una cartella (con tutto il contenuto) dentro un'altra.
+// Ritorna { id: nuovo id, decks: [[vecchio percorso, nuovo percorso], ...] }.
+export function moveFolder(id, parent) {
+  if (parent === id || parent.startsWith(id + '/')) throw new Error('Non puoi spostare una cartella dentro sé stessa.');
+  const d = load();
+  if (parentOf(id) === parent) return { id, decks: [] };
+  const base = id.split('/').pop();
+  let to = `${parent}/${base}`;
+  for (let i = 2; d.cartelle.includes(to); i++) to = `${parent}/${base}-${i}`;
+  const remap = (p) => (p === id ? to : p.startsWith(id + '/') ? to + p.slice(id.length) : p);
+  d.cartelle = d.cartelle.map(remap);
+  const decks = [];
+  const mazzi = {};
+  for (const [p, text] of Object.entries(d.mazzi)) {
+    const np = remap(p);
+    if (np !== p) decks.push([p, np]);
+    mazzi[np] = text;
+  }
+  d.mazzi = mazzi;
+  const nomi = {};
+  for (const [k, v] of Object.entries(d.nomi)) nomi[remap(k)] = v;
+  d.nomi = nomi;
+  store(d);
+  return { id: to, decks };
+}
+
+// Rinomina un mazzo: cambia il titolo nell'intestazione del file (il percorso resta uguale).
+export function renameDeck(path, title) {
+  const d = load();
+  const text = d.mazzi[path];
+  if (text === undefined) throw new Error('Mazzo non trovato.');
+  const t = title.trim().replace(/\n/g, ' ');
+  const fm = text.match(/^---\n([\s\S]*?)\n---/);
+  if (!fm) d.mazzi[path] = `---\ntitolo: ${t}\n---\n\n${text}`;
+  else if (/^\s*(titolo|title)\s*:/m.test(fm[1])) d.mazzi[path] = text.replace(/^(\s*(?:titolo|title)\s*:).*$/m, `$1 ${t}`);
+  else d.mazzi[path] = text.replace(/^---\n/, `---\ntitolo: ${t}\n`);
+  store(d);
+}
+
 export const readDeck = (path) => load().mazzi[path] ?? null;
 
 export function addFolder(parent, name) {
@@ -60,6 +113,7 @@ export function addFolder(parent, name) {
   const id = `${parent}/${slug(name)}`;
   if (d.cartelle.includes(id)) throw new Error('Esiste già una cartella con questo nome.');
   d.cartelle.push(id);
+  d.nomi[id] = name.trim();
   store(d);
   return id;
 }
@@ -116,6 +170,7 @@ export function deleteFolder(id) {
   const decks = Object.keys(d.mazzi).filter(inside);
   for (const p of decks) delete d.mazzi[p];
   d.cartelle = d.cartelle.filter((c) => !inside(c));
+  for (const k of Object.keys(d.nomi)) if (inside(k)) delete d.nomi[k];
   store(d);
   return decks.length;
 }

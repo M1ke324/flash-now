@@ -43,3 +43,19 @@ export async function getRemoteText(path, { timeout = 8000 } = {}) {
     throw e;
   }
 }
+
+// Modalità avanzata: mostra la sincronizzazione dei punteggi con GitHub (token).
+const ADVANCED_KEY = 'sq.avanzata';
+export const advanced = () => localStorage.getItem(ADVANCED_KEY) === 'si';
+export const setAdvanced = (on) => localStorage.setItem(ADVANCED_KEY, on ? 'si' : 'no');
+
+// Cartelle e mazzi online nascosti su questo dispositivo (id di cartelle o percorsi di mazzi).
+const HIDDEN_KEY = 'sq.nascosti';
+export function hiddenList() {
+  try { return JSON.parse(localStorage.getItem(HIDDEN_KEY)) || []; } catch { return []; }
+}
+export function hide(id) {
+  const l = hiddenList();
+  if (!l.includes(id)) localStorage.setItem(HIDDEN_KEY, JSON.stringify([...l, id]));
+}
+export const unhideAll = () => localStorage.removeItem(HIDDEN_KEY);

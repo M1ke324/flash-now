@@ -2,7 +2,8 @@ import { parseDeck, normalizeAnswer } from './parser.js';
 import * as scores from './scores.js';
 import * as library from './library.js';
 import { makeZip, readZip, saveFile, readClipboard } from './files.js';
-import { IN_APP, onlineEnabled, setOnlineEnabled, getRemoteText } from './env.js';
+import { IN_APP, onlineEnabled, setOnlineEnabled, getRemoteText, advanced, setAdvanced, hiddenList, hide, unhideAll } from './env.js';
+import { hasNative, nativeRequest } from './bridge.js';
 
 const $app = document.getElementById('app');
 let manifest = null;
@@ -84,9 +85,17 @@ function fmtDate(iso) {
   return d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
 }
 const fmtDur = (s) => (s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`);
-const LOCAL_NAME = 'Sul dispositivo';
-const folderName = (f) => (f === library.ROOT ? LOCAL_NAME : f ? f.split('/').pop().replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Flash Now');
-const folderLabel = (f) => (library.isLocal(f) ? [LOCAL_NAME, ...f.split('/').slice(1)].join('/') : f);
+// La home mostra insieme la radice online ("") e la radice sul dispositivo ("~").
+const isHomeId = (f) => f === '' || f === library.ROOT;
+const prettySlug = (s) => s.replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase());
+const folderName = (f) => (isHomeId(f) ? 'Flash Now' : library.isLocal(f) ? library.folderTitle(f) : prettySlug(f.split('/').pop()));
+const folderLabel = (f) => {
+  if (isHomeId(f)) return 'Home';
+  if (!library.isLocal(f)) return f.split('/').map(prettySlug).join('/');
+  const parts = f.split('/');
+  return parts.slice(1).map((_, i) => library.folderTitle(parts.slice(0, i + 2).join('/'))).join('/');
+};
+const folderHref = (f) => (isHomeId(f) ? '#/' : `#/cartella/${encPath(f)}`);
 const pctClass = (p) => (p >= 80 ? 'good' : p >= 50 ? 'mid' : 'bad');
 const typeIcon = (t) => (t === 'quiz' ? 'quiz' : 'style');
 const unit = (t, n) => (t === 'quiz' ? (n === 1 ? 'domanda' : 'domande') : (n === 1 ? 'carta' : 'carte'));
@@ -131,6 +140,7 @@ function snackbar(text) {
 }
 
 // Indice = mazzi online (decks.json del sito, facoltativo) + mazzi sul dispositivo.
+// Le cartelle e i mazzi online nascosti dall'utente vengono tolti qui.
 let remote = null;
 let remoteState = 'off'; // 'ok' | 'error' | 'off'
 async function loadManifest(retry = false) {
@@ -147,8 +157,13 @@ async function loadManifest(retry = false) {
       remoteState = 'error';
     }
   }
+  const hidden = hiddenList();
+  const isHidden = (p) => hidden.some((h) => p === h || p.startsWith(h + '/'));
   const local = library.manifest();
-  manifest = { cartelle: [...remote.cartelle, ...local.cartelle], mazzi: [...remote.mazzi, ...local.mazzi] };
+  manifest = {
+    cartelle: [...remote.cartelle.filter((f) => !f || !isHidden(f)), ...local.cartelle],
+    mazzi: [...remote.mazzi.filter((d) => !isHidden(d.path) && !(d.cartella && isHidden(d.cartella))), ...local.mazzi],
+  };
   return manifest;
 }
 
@@ -158,15 +173,15 @@ async function loadDeck(path) {
   return parseDeck(text);
 }
 
-// ---------- finestre di dialogo (M3) ----------
-function dialog({ title, text = '', input = null, choices = null, confirm = 'OK', danger = false }) {
+// ---------- finestre di dialogo e menu (M3) ----------
+function dialog({ title, text = '', input = null, value = '', choices = null, confirm = 'OK', danger = false }) {
   return new Promise((resolve) => {
     const dlg = document.createElement('dialog');
     dlg.className = 'm3-dialog';
     dlg.innerHTML = `<form method="dialog">
       <h2 class="headline-s">${esc(title)}</h2>
       ${text ? `<p class="body-m variant">${esc(text)}</p>` : ''}
-      ${input !== null ? `<div class="field"><label for="dlg-in">${esc(input)}</label><input id="dlg-in" autocomplete="off" required></div>` : ''}
+      ${input !== null ? `<div class="field"><label for="dlg-in">${esc(input)}</label><input id="dlg-in" autocomplete="off" required value="${esc(value)}"></div>` : ''}
       ${choices ? `<div class="choice-list">${choices.map((c, i) => `<label class="choice-row" style="padding-left:${16 + c.depth * 20}px">
         <input type="radio" name="dlg-choice" value="${esc(c.value)}" ${i === 0 ? 'checked' : ''}><span>${esc(c.label)}</span></label>`).join('')}</div>` : ''}
       <div class="dialog-actions">
@@ -183,26 +198,175 @@ function dialog({ title, text = '', input = null, choices = null, confirm = 'OK'
       resolve(ok ? val : null);
     });
     dlg.showModal();
-    dlg.querySelector('#dlg-in')?.focus();
+    const $in = dlg.querySelector('#dlg-in');
+    if ($in) { $in.focus(); $in.select(); }
   });
 }
 
-// Chiede la cartella di destinazione tra quelle "Sul dispositivo" (esclusa quella attuale).
-function pickFolder(exclude) {
-  const folders = manifest.cartelle.filter((f) => library.isLocal(f) && f !== exclude);
+// Menu dal basso (bottom sheet). actions: [chiave, icona, etichetta, pericolosa?]
+function actionSheet(title, subtitle, actions) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement('dialog');
+    dlg.className = 'sheet';
+    dlg.innerHTML = `<div class="sheet-handle"></div>
+      <div class="sheet-head"><span class="title-m">${esc(title)}</span>${subtitle ? `<span class="body-m variant">${esc(subtitle)}</span>` : ''}</div>
+      <div class="sheet-list">${actions.map(([k, ic, label, danger]) => `<button class="sheet-item state${danger ? ' danger' : ''}" data-k="${k}">${icon(ic)}<span>${esc(label)}</span></button>`).join('')}</div>`;
+    let choice = null;
+    dlg.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-k]');
+      if (b) { choice = b.dataset.k; dlg.close(); } else if (e.target === dlg) dlg.close();
+    });
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(choice); });
+    document.body.append(dlg);
+    dlg.showModal();
+  });
+}
+
+// Chiede una cartella di destinazione sul dispositivo. skip(f) esclude le cartelle non valide.
+function pickFolder(skip = () => false) {
+  const folders = manifest.cartelle.filter((f) => library.isLocal(f) && !skip(f));
   if (!folders.length) {
     snackbar('Non ci sono altre cartelle: creane una con "Nuova cartella".');
     return Promise.resolve(null);
   }
   return dialog({
     title: 'Sposta in',
-    choices: folders.map((f) => ({ value: f, label: folderName(f), depth: f.split('/').length - 1 })),
+    choices: folders.map((f) => ({ value: f, label: f === library.ROOT ? 'Home' : folderName(f), depth: f.split('/').length - 1 })),
     confirm: 'Sposta',
   });
 }
 
 function moveDecks(paths, folder) {
   for (const p of paths) scores.renameDeck(p, library.moveDeck(p, folder), folder);
+}
+
+async function exportFolder(f) {
+  const root = f === library.ROOT;
+  const name = root ? 'flash-now-mazzi' : library.slug(folderName(f));
+  const prefix = root ? '' : `${name}/`;
+  const zip = makeZip(library.tree(f).map((e) => ({ name: prefix + e.rel, text: e.text })));
+  if (await saveFile(`${name}.zip`, 'application/zip', zip)) snackbar(`Esportato ${name}.zip. Puoi reimportarlo con "Importa file".`);
+}
+
+async function deleteFolderFlow(f) {
+  const n = manifest.mazzi.filter((d) => d.cartella === f || d.cartella.startsWith(f + '/')).length;
+  const yes = await dialog({
+    title: `Eliminare “${folderName(f)}”?`,
+    text: n ? `Verranno eliminati anche ${n === 1 ? 'il mazzo' : `i ${n} mazzi`} che contiene. I punteggi restano nello storico.` : 'La cartella è vuota.',
+    confirm: 'Elimina', danger: true,
+  });
+  if (!yes) return false;
+  library.deleteFolder(f);
+  return true;
+}
+
+// Copia un mazzo o una cartella online sul dispositivo, dove si può modificare.
+async function copyToDevice(kind, id) {
+  const decks = kind === 'deck' ? manifest.mazzi.filter((d) => d.path === id)
+    : manifest.mazzi.filter((d) => d.cartella === id || d.cartella.startsWith(id + '/'));
+  let base = library.ROOT;
+  if (kind === 'folder') {
+    base = `${library.ROOT}/${library.slug(id.split('/').pop())}`;
+    for (let i = 2; manifest.cartelle.includes(base); i++) base = `${library.ROOT}/${library.slug(id.split('/').pop())}-${i}`;
+    library.ensureFolder(base);
+    library.renameFolder(base, folderName(id));
+  }
+  let n = 0;
+  for (const d of decks) {
+    const text = await getRemoteText(d.path).catch(() => null);
+    if (text === null) continue;
+    const target = kind === 'folder' ? base + d.cartella.slice(id.length) : base;
+    library.ensureFolder(target);
+    library.saveDeck(text, { folder: target, fileName: d.path.split('/').pop().replace(/\.md$/, '') });
+    n++;
+  }
+  return n;
+}
+
+// Pressione prolungata (o tasto destro) su mazzi e cartelle: apre il menu delle azioni.
+function enableLongPress() {
+  document.querySelectorAll('.item[data-id]').forEach((el) => {
+    let timer = null;
+    let fired = false;
+    let sx = 0;
+    let sy = 0;
+    const open = () => {
+      if (fired) return;
+      fired = true;
+      clearTimeout(timer);
+      navigator.vibrate?.(12);
+      itemMenu(el.dataset.kind, el.dataset.id);
+    };
+    const cancel = () => { clearTimeout(timer); timer = null; };
+    el.addEventListener('pointerdown', (e) => {
+      fired = false;
+      sx = e.clientX;
+      sy = e.clientY;
+      timer = setTimeout(open, 500);
+    });
+    el.addEventListener('pointermove', (e) => { if (timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) cancel(); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => el.addEventListener(t, cancel));
+    el.addEventListener('contextmenu', (e) => { e.preventDefault(); open(); });
+    el.addEventListener('click', (e) => { if (fired) { e.preventDefault(); e.stopPropagation(); } });
+  });
+}
+
+async function itemMenu(kind, id) {
+  const local = library.isLocal(id);
+  const deck = kind === 'deck' ? manifest.mazzi.find((d) => d.path === id) : null;
+  const name = deck ? deck.titolo : folderName(id);
+  const where = deck ? folderLabel(deck.cartella) : folderLabel(library.parentOf(id) || '');
+  const actions = !local
+    ? [['copy', 'content_copy', 'Copia sul dispositivo'], ['hide', 'visibility_off', 'Nascondi']]
+    : kind === 'folder'
+      ? [['rename', 'edit', 'Rinomina'], ['move', 'drive_file_move', 'Sposta'], ['export', 'download', 'Esporta (.zip)'], ['delete', 'delete', 'Elimina', true]]
+      : [['rename', 'edit', 'Rinomina'], ['move', 'drive_file_move', 'Sposta'], ['edit', 'edit_note', 'Modifica il contenuto'], ['export', 'download', 'Esporta (.md)'], ['delete', 'delete', 'Elimina', true]];
+  const a = await actionSheet(name, `${local ? '' : 'Online · '}${where}`, actions);
+  if (!a) return;
+  try {
+    if (a === 'rename') {
+      const n = await dialog({ title: kind === 'folder' ? 'Rinomina cartella' : 'Rinomina mazzo', input: 'Nuovo nome', value: name, confirm: 'Rinomina' });
+      if (!n || n === name) return;
+      if (kind === 'folder') library.renameFolder(id, n); else library.renameDeck(id, n);
+      await route();
+      snackbar(`Rinominato in “${n}”`);
+    } else if (a === 'move') {
+      const parent = library.parentOf(id);
+      const to = await pickFolder((f) => f === parent || (kind === 'folder' && (f === id || f.startsWith(id + '/'))));
+      if (!to) return;
+      if (kind === 'folder') {
+        const r = library.moveFolder(id, to);
+        for (const [from, dest] of r.decks) scores.renameDeck(from, dest, library.parentOf(dest));
+      } else {
+        moveDecks([id], to);
+      }
+      await route();
+      snackbar(`Spostato in ${to === library.ROOT ? 'Home' : folderName(to)}`);
+    } else if (a === 'edit') {
+      go(`#/modifica/${encPath(id)}`);
+    } else if (a === 'export') {
+      if (kind === 'folder') await exportFolder(id);
+      else if (await saveFile(id.split('/').pop(), 'text/markdown', library.readDeck(id))) snackbar(`Esportato ${id.split('/').pop()}`);
+    } else if (a === 'delete') {
+      if (kind === 'folder') {
+        if (!(await deleteFolderFlow(id))) return;
+      } else {
+        if (!(await dialog({ title: `Eliminare “${name}”?`, text: 'Il mazzo verrà eliminato da questo dispositivo. I punteggi restano nello storico.', confirm: 'Elimina', danger: true }))) return;
+        library.deleteDeck(id);
+      }
+      if (location.hash.includes(encPath(id))) location.replace(folderHref(library.parentOf(id)));
+      else await route();
+      snackbar(kind === 'folder' ? 'Cartella eliminata' : 'Mazzo eliminato');
+    } else if (a === 'copy') {
+      const n = await copyToDevice(kind, id);
+      await route();
+      snackbar(n ? `Copiato sul dispositivo: ora puoi rinominarlo, spostarlo e modificarlo` : 'Copia non riuscita: serve la connessione');
+    } else if (a === 'hide') {
+      hide(id);
+      await route();
+      snackbar('Nascosto. Puoi mostrarlo di nuovo dalle Impostazioni.');
+    }
+  } catch (e) { snackbar(e.message); }
 }
 
 // ---------- router ----------
@@ -228,58 +392,61 @@ async function route() {
 }
 window.addEventListener('hashchange', route);
 
-// ---------- vista cartella ----------
+// ---------- vista cartella (e home) ----------
 async function viewFolder(folder) {
+  if (folder === library.ROOT) folder = '';
   const m = manifest;
   if (folder && !m.cartelle.includes(folder)) return go('#/');
-  const parentOf = library.parentOf;
-  const local = library.isLocal(folder);
-  const subs = m.cartelle.filter((f) => f && parentOf(f) === folder)
-    .sort((a, b) => (b === library.ROOT) - (a === library.ROOT));
-  const decks = m.mazzi.filter((d) => d.cartella === folder);
+  const home = folder === '';
+  const local = home || library.isLocal(folder); // qui si possono creare e importare mazzi
+  const target = home ? library.ROOT : folder; // dove finiscono i nuovi mazzi e cartelle
+  const levels = home ? ['', library.ROOT] : [folder];
+  const byName = (a, b) => a.localeCompare(b, 'it', { sensitivity: 'base' });
+  const subs = m.cartelle.filter((f) => f && f !== library.ROOT && levels.includes(library.parentOf(f)))
+    .sort((a, b) => byName(folderName(a), folderName(b)));
+  const decks = m.mazzi.filter((d) => levels.includes(d.cartella)).sort((a, b) => byName(a.titolo, b.titolo));
   const countIn = (f) => m.mazzi.filter((d) => d.cartella === f || d.cartella.startsWith(f + '/')).length;
 
-  const results = await scores.folderResults(folder);
+  const results = (await Promise.all(levels.map((l) => scores.folderResults(l)))).flat()
+    .sort((a, b) => b.data.localeCompare(a.data));
   const lastOf = (d) => results.find((r) => r.mazzo === d.path);
-  const back = folder ? (parentOf(folder) ? `#/cartella/${encPath(parentOf(folder))}` : '#/') : null;
+  const back = home ? null : folderHref(library.parentOf(folder));
   const pending = scores.canSync() ? scores.unsynced().length : 0;
   const sel = selecting === folder;
+  const localDecks = decks.filter((d) => library.isLocal(d.path));
 
   render(`${appbar(folderName(folder), back)}
   <main>
-    ${!folder ? `<h2 class="home-title">Cosa ripassi oggi?</h2>
+    ${home ? `<h2 class="home-title">Cosa ripassi oggi?</h2>
     <label class="searchbar">${icon('search')}<input type="search" id="search" placeholder="Cerca un mazzo" autocomplete="off" aria-label="Cerca un mazzo"></label>
     <div id="search-results" class="list"></div>` : ''}
     <div id="browse">
-    ${!folder && !localStorage.getItem(GUIDE_SEEN) ? `<section class="card hint">
+    ${home ? '<div id="update-slot"></div>' : ''}
+    ${home && !localStorage.getItem(GUIDE_SEEN) ? `<section class="card hint">
       <button class="icon-btn state hint-close" id="hint-close" aria-label="Chiudi">${icon('close')}</button>
       <h2 class="title-l">${icon('auto_awesome', 'fill')}Prima volta qui?</h2>
       <p class="body-m variant">Trasforma i tuoi appunti in flashcard con l'AI in quattro passaggi.</p>
       <a class="btn filled" href="#/guida">Apri la guida</a>
     </section>` : ''}
-    ${!folder && pending ? `<a class="sync-banner state" href="#/impostazioni">${icon('sync')}<span>${pending} ${pending === 1 ? 'sessione da sincronizzare' : 'sessioni da sincronizzare'} con GitHub</span>${icon('chevron_right')}</a>` : ''}
-    ${local ? `<div class="local-actions">
-      <a class="btn filled" href="#/nuovo/${encPath(folder)}">${icon('add')}Nuovo mazzo</a>
-      <button class="btn tonal" id="import">${icon('upload_file')}Importa file</button>
+    ${home && pending ? `<a class="sync-banner state" href="#/impostazioni">${icon('sync')}<span>${pending} ${pending === 1 ? 'sessione da sincronizzare' : 'sessioni da sincronizzare'} con GitHub</span>${icon('chevron_right')}</a>` : ''}
+    ${!home && !local ? `<p class="online-note body-m">${icon('cloud', 'fill')}Cartella online: tieni premuto un mazzo per copiarlo sul dispositivo e modificarlo.</p>` : ''}
+    ${local && !sel ? `<div class="local-actions">
+      <a class="btn filled" href="#/nuovo/${encPath(target)}">${icon('add')}Nuovo mazzo</a>
+      <button class="btn tonal" id="import">${icon('upload_file')}Importa</button>
       <button class="btn tonal" id="new-folder">${icon('create_new_folder')}Nuova cartella</button>
-      <button class="btn tonal" id="export-folder" ${countIn(folder) ? '' : 'disabled'}>${icon('download')}Esporta</button>
+      <button class="btn tonal" id="export-folder" ${countIn(target) ? '' : 'disabled'}>${icon('download')}${home ? 'Esporta tutto' : 'Esporta'}</button>
       <input type="file" id="file" accept=".md,.txt,.zip,text/markdown,text/plain,application/zip" multiple hidden>
     </div>` : ''}
-    ${subs.length ? `<div class="subhead title-s">Cartelle</div><div class="list">${subs.map((f) => `
-      <a class="item state" href="#/cartella/${encPath(f)}">
-        <span class="avatar folder">${icon(f === library.ROOT ? 'smartphone' : 'folder', 'fill')}</span>
-        <span class="item-main"><span class="headline">${esc(folderName(f))}</span><span class="support">${countIn(f)} ${countIn(f) === 1 ? 'mazzo' : 'mazzi'}</span></span>
-        ${icon('chevron_right', 'trail')}
-      </a>`).join('')}</div>` : ''}
-    ${!folder && remoteState === 'error' ? `<p class="offline-note body-m">${icon('cloud_off')}Mazzi online non disponibili senza connessione. I mazzi sul dispositivo funzionano lo stesso.</p>` : ''}
+    ${subs.length && !sel ? `<div class="subhead title-s">Cartelle</div><div class="list">${subs.map((f) => folderItem(f, countIn(f))).join('')}</div>` : ''}
+    ${home && remoteState === 'error' ? `<p class="offline-note body-m">${icon('cloud_off')}Mazzi online non disponibili senza connessione. Quelli sul dispositivo funzionano lo stesso.</p>` : ''}
     ${decks.length ? `<div class="subhead-row"><span class="subhead title-s">Mazzi</span>
-      ${local && !sel ? `<button class="btn text" id="sel-start">${icon('check_box_outline_blank')}Seleziona</button>` : ''}</div>
-      <div class="list">${decks.map((d) => (sel ? selectItem(d) : deckItem(d, lastOf(d)))).join('')}</div>` : ''}
-    ${folder && !subs.length && !decks.length ? `<div class="empty">${icon(local ? 'smartphone' : 'folder')}<p>${local
-    ? 'Nessun mazzo qui. Creane uno, incolla quello generato da un\'AI oppure importa un file .md.'
-    : `Questa cartella è vuota. Aggiungi un file .md in <code>decks/${esc(folder)}</code> per creare un mazzo.`}</p></div>` : ''}
-    ${results.length ? `<div class="subhead title-s">Attività recente</div>${resultList(results.slice(0, 6), true)}` : ''}
-    ${local && folder !== library.ROOT && !sel ? `<div class="btn-col"><button class="btn text danger" id="del-folder">${icon('delete')}Elimina cartella</button></div>` : ''}
+      ${localDecks.length && !sel ? `<button class="btn text" id="sel-start">${icon('check_box_outline_blank')}Seleziona</button>` : ''}</div>
+      <div class="list">${sel ? localDecks.map(selectItem).join('') : decks.map((d) => deckItem(d, lastOf(d))).join('')}</div>` : ''}
+    ${!subs.length && !decks.length ? `<div class="empty">${icon(local ? 'style' : 'folder')}<p>${local
+    ? 'Ancora nessun mazzo. Creane uno, incolla quello generato da un\'AI oppure importa un file .md.'
+    : 'Questa cartella online è vuota.'}</p></div>` : ''}
+    ${(subs.length || decks.length) && !sel && home ? `<p class="tip body-m">${icon('touch_app')}Tieni premuto un mazzo o una cartella per rinominarlo, spostarlo o eliminarlo.</p>` : ''}
+    ${results.length && !sel ? `<div class="subhead title-s">Attività recente</div>${resultList(results.slice(0, 6), true)}` : ''}
     </div>
     ${sel ? `<div class="select-bar">
       <button class="icon-btn state" id="sel-cancel" aria-label="Annulla selezione">${icon('close')}</button>
@@ -288,6 +455,9 @@ async function viewFolder(folder) {
       <button class="btn negative" id="sel-del" disabled>Elimina</button>
     </div>` : ''}
   </main>`);
+
+  enableLongPress();
+  if (home) showUpdateBanner();
 
   document.getElementById('hint-close')?.addEventListener('click', (e) => {
     localStorage.setItem(GUIDE_SEEN, '1');
@@ -304,6 +474,7 @@ async function viewFolder(folder) {
         ? m.mazzi.filter((d) => normalizeAnswer(`${d.titolo} ${d.descrizione} ${folderLabel(d.cartella)}`).includes(q)).map((d) => deckItem(d, null, true)).join('')
           || `<div class="empty">${icon('search')}<p>Nessun mazzo contiene “${esc($s.value)}”.</p></div>`
         : '';
+      enableLongPress();
     });
   }
   if (!local) return;
@@ -321,12 +492,12 @@ async function viewFolder(folder) {
     document.getElementById('sel-cancel').addEventListener('click', () => { selecting = null; viewFolder(folder); });
     document.getElementById('sel-move').addEventListener('click', async () => {
       const paths = chosen();
-      const to = await pickFolder(folder);
+      const to = await pickFolder((f) => f === target);
       if (!to) return;
       moveDecks(paths, to);
       selecting = null;
       await route();
-      snackbar(`${paths.length === 1 ? 'Mazzo spostato' : `${paths.length} mazzi spostati`} in ${folderName(to)}`);
+      snackbar(`${paths.length === 1 ? 'Mazzo spostato' : `${paths.length} mazzi spostati`} in ${to === library.ROOT ? 'Home' : folderName(to)}`);
     });
     document.getElementById('sel-del').addEventListener('click', async () => {
       const paths = chosen();
@@ -348,7 +519,7 @@ async function viewFolder(folder) {
     const name = await dialog({ title: 'Nuova cartella', input: 'Nome della cartella', confirm: 'Crea' });
     if (!name) return;
     try {
-      const id = library.addFolder(folder, name);
+      const id = library.addFolder(target, name);
       go(`#/cartella/${encPath(id)}`);
     } catch (e) { snackbar(e.message); }
   });
@@ -357,10 +528,10 @@ async function viewFolder(folder) {
   $file.addEventListener('change', async () => {
     let ok = 0;
     const skipped = [];
-    const add = (text, name, target) => {
+    const add = (text, name, dest) => {
       if (!parseDeck(text).items.length) { skipped.push(name.split('/').pop()); return; }
-      library.ensureFolder(target);
-      library.saveDeck(text, { folder: target, fileName: name.split('/').pop().replace(/\.(md|txt|markdown)$/i, '') });
+      library.ensureFolder(dest);
+      library.saveDeck(text, { folder: dest, fileName: name.split('/').pop().replace(/\.(md|txt|markdown)$/i, '') });
       ok++;
     };
     try {
@@ -370,41 +541,36 @@ async function viewFolder(folder) {
           for (const e of await readZip(await f.arrayBuffer())) {
             if (!/\.(md|txt|markdown)$/i.test(e.name) || e.name.startsWith('__MACOSX')) continue;
             const dirs = e.name.split('/').slice(0, -1).map(library.slug);
-            add(e.text, e.name, [folder, ...dirs].join('/'));
+            add(e.text, e.name, [target, ...dirs].join('/'));
           }
         } else {
-          add(await f.text(), f.name, folder);
+          add(await f.text(), f.name, target);
         }
       }
     } catch (e) { snackbar(e.message); }
     await route();
     snackbar(`${ok === 1 ? 'Importato 1 mazzo' : `Importati ${ok} mazzi`}${skipped.length ? `. Saltati perché non nel formato dei mazzi: ${skipped.join(', ')}` : ''}`);
   });
-  document.getElementById('export-folder').addEventListener('click', async () => {
-    const name = folder === library.ROOT ? 'studio-mazzi' : folder.split('/').pop();
-    const prefix = folder === library.ROOT ? '' : `${name}/`;
-    const zip = makeZip(library.tree(folder).map((e) => ({ name: prefix + e.rel, text: e.text })));
-    if (await saveFile(`${name}.zip`, 'application/zip', zip)) snackbar(`Esportato ${name}.zip. Puoi reimportarlo con "Importa file".`);
-  });
-  document.getElementById('del-folder')?.addEventListener('click', async () => {
-    const n = countIn(folder);
-    const yes = await dialog({
-      title: `Eliminare “${folderName(folder)}”?`,
-      text: n ? `Verranno eliminati anche ${n === 1 ? 'il mazzo' : `i ${n} mazzi`} che contiene. I punteggi restano nello storico.` : 'La cartella è vuota.',
-      confirm: 'Elimina', danger: true,
-    });
-    if (!yes) return;
-    library.deleteFolder(folder);
-    location.replace(`#/cartella/${encPath(parentOf(folder))}`);
-    snackbar('Cartella eliminata');
-  });
+  document.getElementById('export-folder').addEventListener('click', () => exportFolder(target));
+}
+
+const onlineBadge = () => `<span class="online-badge" title="Online" aria-label="Online">${icon('cloud', 'fill')}</span>`;
+
+function folderItem(f, n) {
+  const online = !library.isLocal(f);
+  return `<a class="item state" href="${folderHref(f)}" data-kind="folder" data-id="${esc(f)}">
+    <span class="avatar folder">${icon('folder', 'fill')}${online ? onlineBadge() : ''}</span>
+    <span class="item-main"><span class="headline">${esc(folderName(f))}</span><span class="support">${n} ${n === 1 ? 'mazzo' : 'mazzi'}${online ? ', online' : ''}</span></span>
+    ${icon('chevron_right', 'trail')}
+  </a>`;
 }
 
 function deckItem(d, last, showFolder = false) {
-  return `<a class="item state" href="#/mazzo/${encPath(d.path)}">
-    <span class="avatar ${d.tipo}">${icon(typeIcon(d.tipo))}</span>
+  const online = !library.isLocal(d.path);
+  return `<a class="item state" href="#/mazzo/${encPath(d.path)}" data-kind="deck" data-id="${esc(d.path)}">
+    <span class="avatar ${d.tipo}">${icon(typeIcon(d.tipo))}${online ? onlineBadge() : ''}</span>
     <span class="item-main"><span class="headline">${esc(d.titolo)}</span>
-      <span class="support">${d.n} ${unit(d.tipo, d.n)}${showFolder && d.cartella ? ` in ${esc(folderLabel(d.cartella))}` : ''}</span></span>
+      <span class="support">${d.n} ${unit(d.tipo, d.n)}${showFolder && !isHomeId(d.cartella) ? ` in ${esc(folderLabel(d.cartella))}` : ''}</span></span>
     ${last ? `<span class="score-chip ${pctClass(last.percentuale)}">${last.percentuale}%</span>` : icon('chevron_right', 'trail')}
   </a>`;
 }
@@ -489,7 +655,7 @@ function viewEditor({ folder = null, path = null }) {
   const isNew = !path;
   if (isNew && !(library.isLocal(folder) && manifest.cartelle.includes(folder))) return go('#/');
   if (!isNew && (!library.isLocal(path) || library.readDeck(path) === null)) return go('#/');
-  const back = isNew ? `#/cartella/${encPath(folder)}` : `#/mazzo/${encPath(path)}`;
+  const back = isNew ? folderHref(folder) : `#/mazzo/${encPath(path)}`;
   const initial = isNew ? TEMPLATES.flashcard : library.readDeck(path);
 
   render(`${appbar(isNew ? 'Nuovo mazzo' : 'Modifica mazzo', back)}
@@ -594,7 +760,7 @@ async function viewDeck(path) {
   const weakReady = stats.size > 0;
   const plain = (t) => t.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/[*`]/g, '').replace(/\n/g, ' ');
 
-  render(`${appbar(d.cartella ? folderName(d.cartella) : 'Flash Now', d.cartella ? `#/cartella/${encPath(d.cartella)}` : '#/')}
+  render(`${appbar(folderName(d.cartella), folderHref(d.cartella))}
   <main>
     <section class="card deck-hero">
       <div class="deck-type label-l">${icon(typeIcon(deck.type))}${isQuiz ? 'Quiz' : 'Flashcard'}</div>
@@ -621,12 +787,17 @@ async function viewDeck(path) {
         ${!isQuiz ? '<label class="setting-row"><span>Mostra prima la risposta</span><input class="switch" type="checkbox" name="reverse"></label>' : ''}
         <button class="btn filled large" type="submit">${icon('play_arrow', 'fill')}Inizia</button>
       </form>
-      ${library.isLocal(path) ? `<div class="btn-row">
-        <a class="btn outlined" href="#/modifica/${encPath(path)}">Modifica</a>
-        <button class="btn outlined" id="move-deck">Sposta</button>
-        <button class="btn outlined" id="export-deck">Esporta</button>
+      ${library.isLocal(path) ? `<div class="btn-grid">
+        <button class="btn outlined" id="rename-deck">${icon('edit')}Rinomina</button>
+        <a class="btn outlined" href="#/modifica/${encPath(path)}">${icon('edit_note')}Modifica</a>
+        <button class="btn outlined" id="move-deck">${icon('drive_file_move')}Sposta</button>
+        <button class="btn outlined" id="export-deck">${icon('download')}Esporta</button>
       </div>
-      <div class="btn-col"><button class="btn text danger" id="del-deck">${icon('delete')}Elimina mazzo</button></div>` : ''}
+      <div class="btn-col"><button class="btn text danger" id="del-deck">${icon('delete')}Elimina mazzo</button></div>`
+    : `<div class="btn-grid">
+        <button class="btn outlined" id="copy-deck">${icon('content_copy')}Copia sul dispositivo</button>
+        <button class="btn outlined" id="hide-deck">${icon('visibility_off')}Nascondi</button>
+      </div>`}
     </section>
     ${hardest.length ? `<div class="subhead title-s">${isQuiz ? 'Domande' : 'Carte'} che sbagli più spesso</div>
       <div class="list">${hardest.map(({ it, s }) => `
@@ -641,12 +812,30 @@ async function viewDeck(path) {
   </main>`);
 
   document.getElementById('move-deck')?.addEventListener('click', async () => {
-    const to = await pickFolder(d.cartella);
+    const to = await pickFolder((f) => f === d.cartella);
     if (!to) return;
     const newPath = library.moveDeck(path, to);
     scores.renameDeck(path, newPath, to);
     location.replace(`#/mazzo/${encPath(newPath)}`);
-    snackbar(`Spostato in ${folderName(to)}`);
+    snackbar(`Spostato in ${to === library.ROOT ? 'Home' : folderName(to)}`);
+  });
+  document.getElementById('rename-deck')?.addEventListener('click', async () => {
+    const n = await dialog({ title: 'Rinomina mazzo', input: 'Nuovo nome', value: d.titolo, confirm: 'Rinomina' });
+    if (!n || n === d.titolo) return;
+    library.renameDeck(path, n);
+    await route();
+    snackbar(`Rinominato in “${n}”`);
+  });
+  document.getElementById('copy-deck')?.addEventListener('click', async () => {
+    const n = await copyToDevice('deck', path);
+    if (!n) return snackbar('Copia non riuscita: serve la connessione');
+    go('#/');
+    snackbar('Copiato sul dispositivo: lo trovi in Home');
+  });
+  document.getElementById('hide-deck')?.addEventListener('click', async () => {
+    hide(path);
+    location.replace(folderHref(d.cartella));
+    snackbar('Nascosto. Puoi mostrarlo di nuovo dalle Impostazioni.');
   });
   document.getElementById('export-deck')?.addEventListener('click', async () => {
     const name = path.split('/').pop();
@@ -655,7 +844,7 @@ async function viewDeck(path) {
   document.getElementById('del-deck')?.addEventListener('click', async () => {
     if (!(await dialog({ title: `Eliminare “${d.titolo}”?`, text: 'Il mazzo verrà eliminato da questo dispositivo. I punteggi restano nello storico.', confirm: 'Elimina', danger: true }))) return;
     library.deleteDeck(path);
-    location.replace(`#/cartella/${encPath(d.cartella)}`);
+    location.replace(folderHref(d.cartella));
     snackbar('Mazzo eliminato');
   });
 
@@ -897,7 +1086,7 @@ async function finish() {
   const pct = totale ? Math.round((punti / totale) * 100) : 0;
   const wrongAnswers = isQuiz ? s.answers.filter((a) => !a.ok) : [];
   const wrongItems = isQuiz ? wrongAnswers.map((a) => a.it) : s.items.filter((_, i) => !s.firstTry.get(i));
-  const hasToken = !!scores.getSettings().token;
+  const hasToken = scores.canSync();
 
   const risposte = isQuiz
     ? s.answers.map((a) => ({ d: a.it.id, ok: a.ok }))
@@ -958,7 +1147,7 @@ function viewGuide() {
     <section class="card">
       <h2 class="title-l">${icon('auto_awesome', 'fill')}Crea flashcard con l'AI</h2>
       <ol class="steps">
-        <li>Apri <strong>${LOCAL_NAME}</strong> e tocca <strong>Nuovo mazzo</strong>. Scegli <em>Flashcard</em> o <em>Quiz</em>.</li>
+        <li>Nella home tocca <strong>Nuovo mazzo</strong> e scegli <em>Flashcard</em> o <em>Quiz</em>.</li>
         <li>Tocca <strong>Istruzioni per l'AI</strong>: vengono copiate.</li>
         <li>In ChatGPT, Claude o Gemini incolla le istruzioni, aggiungi sotto i tuoi appunti e invia.</li>
         <li>Copia la risposta, torna all'editor, tocca <strong>Incolla</strong> e poi <strong>Salva</strong>.</li>
@@ -977,41 +1166,117 @@ function viewGuide() {
     <section class="card">
       <h2 class="title-l">Organizza e conserva</h2>
       <ul class="bullets body-m">
-        <li>In <strong>${LOCAL_NAME}</strong> crei cartelle e sottocartelle.</li>
+        <li><strong>Tieni premuto</strong> un mazzo o una cartella per rinominarlo, spostarlo, esportarlo o eliminarlo.</li>
+        <li>Quelli con la ${icon('cloud', 'fill inline')} sono online: tenendoli premuti puoi copiarli sul dispositivo o nasconderli.</li>
         <li><strong>Esporta</strong> salva un mazzo (.md) o una cartella intera (.zip); <strong>Importa file</strong> li ricarica.</li>
-        <li>Esporta ogni tanto come backup: se disinstalli l'app, i mazzi sul dispositivo si perdono.</li>
+        <li>Esporta ogni tanto come backup (<strong>Esporta tutto</strong> nella home): se disinstalli l'app, i tuoi mazzi si perdono.</li>
       </ul>
     </section>
   </main>`);
 }
 
+// ---------- aggiornamenti dell'app (solo Android) ----------
+const RELEASES_API = 'https://api.github.com/repos/M1ke324/flash-now/releases/latest';
+const UPDATE_KEY = 'sq.aggiornamento';
+
+const newer = (a, b) => {
+  const x = a.split('.').map(Number);
+  const y = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  }
+  return false;
+};
+
+let appVersion = null;
+async function getAppVersion() {
+  if (!hasNative()) return null;
+  if (!appVersion) appVersion = (await nativeRequest({ type: 'version' })).version || null;
+  return appVersion;
+}
+
+// Controlla l'ultima Release su GitHub (al massimo ogni 6 ore, a meno di force).
+// Ritorna { version, url } se c'è una versione più nuova di quella installata.
+async function checkUpdate(force = false) {
+  const current = await getAppVersion();
+  if (!current || !onlineEnabled()) return null;
+  let info = null;
+  try { info = JSON.parse(localStorage.getItem(UPDATE_KEY)); } catch { /* niente in cache */ }
+  if (force || !info || Date.now() - info.checked > 6 * 3600e3) {
+    const r = await fetch(RELEASES_API, { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const j = await r.json();
+    const apk = (j.assets || []).find((a) => a.name.endsWith('.apk'));
+    info = { checked: Date.now(), version: String(j.tag_name || '').replace(/^v/, ''), url: apk?.browser_download_url || null };
+    localStorage.setItem(UPDATE_KEY, JSON.stringify(info));
+  }
+  return info.url && newer(info.version, current) ? info : null;
+}
+
+async function showUpdateBanner() {
+  const slot = document.getElementById('update-slot');
+  if (!slot || !hasNative()) return;
+  const info = await checkUpdate().catch(() => null);
+  if (!info || !document.body.contains(slot)) return;
+  slot.innerHTML = `<section class="update-banner">
+    ${icon('system_update', 'fill')}
+    <span class="body-m"><strong>Flash Now ${esc(info.version)}</strong> è disponibile</span>
+    <button class="btn filled" id="do-update">Aggiorna</button>
+  </section>`;
+  document.getElementById('do-update').addEventListener('click', (e) => runUpdate(info, e.currentTarget));
+}
+
+// Scarica l'APK (nel codice nativo) e apre l'installazione di Android.
+async function runUpdate(info, button) {
+  if (button) button.disabled = true;
+  snackbar('Download dell\'aggiornamento…');
+  const r = await nativeRequest({ type: 'update', url: info.url }, (p) => {
+    if (button) button.textContent = `${p}%`;
+  });
+  if (button) { button.disabled = false; button.textContent = 'Aggiorna'; }
+  if (!r.ok) return snackbar(`Aggiornamento non riuscito: ${r.error || 'errore di rete'}`);
+  snackbar(r.permission
+    ? 'Consenti a Flash Now di installare app, poi torna qui: l\'installazione parte da sola'
+    : 'Conferma l\'installazione per aggiornare Flash Now');
+}
+
 // ---------- impostazioni ----------
-function viewSettings() {
+async function viewSettings() {
   const s = scores.getSettings();
   const total = scores.localCount();
   const pending = scores.unsynced().length;
+  const adv = advanced();
+  const hiddenCount = hiddenList().length;
+  const version = await getAppVersion().catch(() => null);
   const field = (name, label, value, extra = '') => `<div class="field"><label for="f-${name}">${label}</label><input id="f-${name}" name="${name}" value="${esc(value)}" autocapitalize="off" autocomplete="off" spellcheck="false" ${extra}></div>`;
   render(`${appbar('Impostazioni', '#/')}
   <main>
-    ${IN_APP ? `<section class="card">
+    <section class="card">
       <h2 class="title-l">Mazzi online</h2>
-      <p class="body-m variant">I mazzi del sito vengono scaricati quando c'è connessione e restano disponibili offline. Spegnendo questa opzione l'app non usa internet e mostra solo i mazzi sul dispositivo.</p>
-      <label class="setting-row"><span>Carica i mazzi online</span><input class="switch" type="checkbox" id="online" ${onlineEnabled() ? 'checked' : ''}></label>
+      <p class="body-m variant">I mazzi online sono quelli con la nuvola. Vengono scaricati quando c'è connessione e restano disponibili offline.</p>
+      ${IN_APP ? `<label class="setting-row"><span>Mostra i mazzi online<br><span class="body-m variant">Spento, l'app non usa internet e mostra solo i tuoi mazzi</span></span><input class="switch" type="checkbox" id="online" ${onlineEnabled() ? 'checked' : ''}></label>` : ''}
+      <div class="setting-row static"><span>${hiddenCount ? `${hiddenCount} ${hiddenCount === 1 ? 'elemento nascosto' : 'elementi nascosti'}` : 'Nessun elemento nascosto'}<br><span class="body-m variant">Per nascondere una cartella o un mazzo online tienilo premuto</span></span>
+        <button class="btn text" id="unhide" ${hiddenCount ? '' : 'disabled'}>Mostra tutti</button></div>
+    </section>
+    ${version ? `<section class="card">
+      <h2 class="title-l">App</h2>
+      <div class="setting-row static"><span>Versione ${esc(version)}<br><span class="body-m variant" id="update-status">L'app controlla da sola se ci sono aggiornamenti</span></span>
+        <button class="btn tonal" id="check-update">Controlla</button></div>
     </section>` : ''}
     <section class="card">
-      <h2 class="title-l">Punteggi sul dispositivo</h2>
-      <p class="body-m variant">Ogni punteggio viene salvato prima di tutto su questo dispositivo e funziona anche senza GitHub.</p>
+      <h2 class="title-l">Modalità avanzata</h2>
+      <label class="setting-row"><span>Attiva la modalità avanzata<br><span class="body-m variant">Sincronizzazione dei punteggi con un repository GitHub tramite token</span></span><input class="switch" type="checkbox" id="advanced" ${adv ? 'checked' : ''}></label>
+    </section>
+    ${adv ? `<section class="card">
+      <h2 class="title-l">Sincronizzazione con GitHub</h2>
+      <p class="body-m variant">Copia i punteggi dei mazzi online nel file <code>punteggi.json</code> della loro cartella nel repository. I punteggi dei tuoi mazzi restano sul dispositivo.</p>
+      <p class="body-m variant">Serve un <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">fine-grained token</a> limitato al repository, con il permesso <strong>Contents: Read and write</strong>. Il token resta salvato solo su questo dispositivo.</p>
       <div class="list">
         <div class="item"><span class="avatar folder">${icon('history')}</span>
           <span class="item-main"><span class="headline">${total} ${total === 1 ? 'sessione salvata' : 'sessioni salvate'}</span>
-          <span class="support">${!s.token ? 'Sincronizzazione con GitHub non configurata' : pending ? `${pending} da sincronizzare con GitHub` : 'Tutto sincronizzato con GitHub'}</span></span>
+          <span class="support">${!s.token ? 'Token non configurato' : pending ? `${pending} da sincronizzare` : 'Tutto sincronizzato'}</span></span>
         </div>
       </div>
-    </section>
-    <section class="card">
-      <h2 class="title-l">Sincronizzazione con GitHub</h2>
-      <p class="body-m variant">Facoltativa, e solo per i mazzi online: i punteggi dei mazzi sul dispositivo restano sul dispositivo. Copia i punteggi nel file <code>punteggi.json</code> della cartella di ogni mazzo, così li vedi da tutti i dispositivi e restano nel repository.</p>
-      <p class="body-m variant">Serve un <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">fine-grained token</a> limitato a questo repository, con il permesso <strong>Contents: Read and write</strong>. Il token resta salvato solo su questo dispositivo.</p>
       <form id="gh" class="settings-form">
         ${field('owner', 'Utente o organizzazione', s.owner, 'required')}
         ${field('repo', 'Repository', s.repo, 'required')}
@@ -1026,7 +1291,7 @@ function viewSettings() {
       <div class="btn-col">
         <button class="btn tonal" id="sync-now" ${pending && s.token ? '' : 'disabled'}>${icon('sync')}${pending ? `Sincronizza ora (${pending})` : 'Sincronizza ora'}</button>
       </div>
-    </section>
+    </section>` : ''}
   </main>`);
 
   document.getElementById('online')?.addEventListener('change', (e) => {
@@ -1034,6 +1299,31 @@ function viewSettings() {
     remote = null;
     snackbar(e.target.checked ? 'Mazzi online attivati' : 'Mazzi online disattivati: l\'app funziona senza connessione');
   });
+  document.getElementById('unhide').addEventListener('click', () => {
+    unhideAll();
+    snackbar('Tutti gli elementi online sono di nuovo visibili');
+    viewSettings();
+  });
+  document.getElementById('advanced').addEventListener('change', (e) => {
+    setAdvanced(e.target.checked);
+    viewSettings();
+  });
+  let found = null;
+  document.getElementById('check-update')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const $st = document.getElementById('update-status');
+    if (found) return runUpdate(found, btn);
+    btn.disabled = true;
+    try {
+      found = await checkUpdate(true);
+      $st.textContent = found ? `Disponibile la versione ${found.version}` : 'Hai già l\'ultima versione';
+      if (found) btn.textContent = 'Aggiorna';
+    } catch {
+      $st.textContent = 'Controllo non riuscito: serve la connessione';
+    }
+    btn.disabled = false;
+  });
+  if (!adv) return;
 
   const read = () => {
     const f = new FormData(document.getElementById('gh'));

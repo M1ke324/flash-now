@@ -2,6 +2,8 @@
 // Nessuna libreria esterna: gli zip creati qui non sono compressi (i mazzi sono testo piccolo);
 // in lettura sono supportati anche gli zip compressi (deflate) creati da altri programmi.
 
+import { hasNative, nativeRequest } from './bridge.js';
+
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -120,20 +122,9 @@ function toBase64(bytes) {
   return btoa(bin);
 }
 
-// Richiesta al codice nativo dell'app (canale "FlashNowAndroid"): una alla volta.
-function nativeRequest(msg) {
-  const bridge = window.FlashNowAndroid;
-  return new Promise((resolve) => {
-    bridge.onmessage = (e) => {
-      try { resolve(JSON.parse(e.data)); } catch { resolve({ ok: false }); }
-    };
-    bridge.postMessage(JSON.stringify(msg));
-  });
-}
-
 export async function saveFile(name, mime, content) {
   const bytes = typeof content === 'string' ? enc.encode(content) : content;
-  if (window.FlashNowAndroid) {
+  if (hasNative()) {
     return (await nativeRequest({ type: 'save', name, mime, data: toBase64(bytes) })).ok === true;
   }
   const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
@@ -149,7 +140,7 @@ export async function saveFile(name, mime, content) {
 
 // Testo degli appunti. Nell'app lo legge il codice nativo (il WebView non lo permette al JavaScript).
 export async function readClipboard() {
-  if (window.FlashNowAndroid) {
+  if (hasNative()) {
     const r = await nativeRequest({ type: 'paste' });
     if (!r.ok) throw new Error('appunti non disponibili');
     return r.text || '';

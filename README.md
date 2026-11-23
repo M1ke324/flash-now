@@ -34,7 +34,7 @@ The deck page also lists the questions you miss most often.
 ## Quick guide
 
 **Create flashcards with AI (in the app or on the site)**
-1. Open **Sul dispositivo** (on this device) → **Nuovo mazzo** (new deck), pick *Flashcard* or *Quiz*.
+1. On the home screen tap **Nuovo mazzo** (new deck), pick *Flashcard* or *Quiz*.
 2. Tap **Istruzioni per l'AI** (AI instructions): they are copied.
 3. In ChatGPT, Claude or Gemini paste the instructions, add your notes below and send.
 4. Copy the answer, go back to the editor, tap **Incolla** (paste, replaces the example) and then **Salva** (save).
@@ -43,7 +43,11 @@ The box under the editor turns green when the format is right, red with a line n
 
 **Study**: tap the card to flip it (flashcards) or tap an answer (quiz). **Punti deboli** (weak spots) shows what you miss most first.
 
-**Organise**: a deck page has **Sposta** (move) and **Elimina** (delete); in a folder, **Seleziona** (select) lets you move or delete several decks at once.
+**Organise**: **long-press** a deck or folder to rename, move, export or delete it. Items with a cloud are online: you can copy them to the device or hide them. **Seleziona** (select) moves or deletes several decks at once.
+
+**Updates**: when a new version is out, the app shows it on the home screen and downloads it with **Aggiorna** (update).
+
+**Advanced mode** (Settings): syncs scores to the repository with a GitHub token. Not needed for normal use.
 
 **Keep your decks**: **Esporta** (export) saves a deck (.md) or a folder (.zip), **Importa file** (import) loads them back. Do it now and then as a backup.
 
