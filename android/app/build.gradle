@@ -6,7 +6,7 @@ android {
     // Identificativo storico (era "Studio Quiz"): non va cambiato, altrimenti
     // Android tratta l'app come diversa e non la aggiorna sopra le versioni installate.
     namespace 'io.github.m1ke324.studioquiz'
-    compileSdk 36
+    compileSdk 37
 
     defaultConfig {
         applicationId 'io.github.m1ke324.studioquiz'
