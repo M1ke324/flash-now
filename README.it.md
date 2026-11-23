@@ -174,3 +174,8 @@ android/                    app Android (contenitore WebView del sito)
 FORMATO.md                  specifica del formato
 CLAUDE.md                   istruzioni per l'assistente AI
 ```
+
+## Autore
+
+Flash Now è stato ideato e creato da **Michele Castrucci**.
+Feedback e idee: dalla pagina **Invia un feedback** nell'app (guida → Informazioni) oppure aprendo una [issue](https://github.com/M1ke324/flash-now/issues).

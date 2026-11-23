@@ -385,6 +385,7 @@ async function route() {
     if (h.startsWith('/modifica/')) return viewEditor({ path: h.slice('/modifica/'.length) });
     if (h === '/impostazioni') return viewSettings();
     if (h === '/guida') return viewGuide();
+    if (h === '/feedback') return viewFeedback();
     return viewFolder('');
   } catch (e) {
     render(`${appbar('Errore', '#/')}<main><div class="card error">${esc(e.message)}</div></main>`);
@@ -1172,7 +1173,50 @@ function viewGuide() {
         <li>Esporta ogni tanto come backup (<strong>Esporta tutto</strong> nella home): se disinstalli l'app, i tuoi mazzi si perdono.</li>
       </ul>
     </section>
+    <section class="card about">
+      <h2 class="title-l">${icon('info', 'fill')}Informazioni</h2>
+      <div class="list">
+        <div class="item"><span class="avatar folder">${icon('person', 'fill')}</span>
+          <span class="item-main"><span class="headline">Michele Castrucci</span><span class="support">Ideatore e creatore di Flash Now</span></span></div>
+        <a class="item state" href="${REPO_URL}" target="_blank" rel="noopener"><span class="avatar folder">${icon('code')}</span>
+          <span class="item-main"><span class="headline">Codice sorgente</span><span class="support">github.com/M1ke324/flash-now</span></span>${icon('open_in_new', 'trail')}</a>
+        <a class="item state" href="${REPO_URL}/issues/new" target="_blank" rel="noopener"><span class="avatar folder">${icon('bug_report')}</span>
+          <span class="item-main"><span class="headline">Segnala un problema su GitHub</span><span class="support">Serve un account GitHub</span></span>${icon('open_in_new', 'trail')}</a>
+        <a class="item state" href="#/feedback"><span class="avatar folder">${icon('chat')}</span>
+          <span class="item-main"><span class="headline">Invia un feedback</span><span class="support">Idee, problemi o commenti, via email</span></span>${icon('chevron_right', 'trail')}</a>
+      </div>
+    </section>
   </main>`);
+}
+
+// ---------- feedback ----------
+const REPO_URL = 'https://github.com/M1ke324/flash-now';
+// Indirizzo composto a pezzi per non lasciarlo in chiaro ai raccoglitori di email.
+const FEEDBACK_TO = ['michele.castrucci002', 'gmail.com'].join('@');
+
+async function viewFeedback() {
+  const version = await getAppVersion().catch(() => null);
+  render(`${appbar('Feedback', '#/guida')}
+  <main class="editor-page">
+    <p class="body-m variant">Scrivi un'idea, un problema o un commento: arriva a Michele Castrucci, che ha creato Flash Now.</p>
+    <div class="segmented" role="radiogroup" aria-label="Tipo di feedback">
+      <label><input type="radio" name="kind" value="Suggerimento" checked><span>${icon('check')}Idea</span></label>
+      <label><input type="radio" name="kind" value="Problema"><span>${icon('check')}Problema</span></label>
+      <label><input type="radio" name="kind" value="Altro"><span>${icon('check')}Altro</span></label>
+    </div>
+    <textarea id="fb-text" class="editor feedback-text" placeholder="Il tuo messaggio" aria-label="Il tuo messaggio"></textarea>
+    <p class="body-m variant">Toccando Invia si apre la tua app email con il messaggio già pronto: devi solo confermare l'invio.</p>
+    <button class="btn filled large" id="fb-send">${icon('send')}Invia</button>
+  </main>`);
+
+  document.getElementById('fb-send').addEventListener('click', () => {
+    const text = document.getElementById('fb-text').value.trim();
+    if (!text) return snackbar('Scrivi prima il messaggio');
+    const kind = document.querySelector('[name=kind]:checked').value;
+    const where = IN_APP ? `app Android ${version || ''}`.trim() : 'sito web';
+    const body = `${text}\n\n--\nFlash Now, ${where}\n${navigator.userAgent}`;
+    location.href = `mailto:${FEEDBACK_TO}?subject=${encodeURIComponent(`[Flash Now] ${kind}`)}&body=${encodeURIComponent(body)}`;
+  });
 }
 
 // ---------- aggiornamenti dell'app (solo Android) ----------
@@ -1263,6 +1307,7 @@ async function viewSettings() {
       <div class="setting-row static"><span>Versione ${esc(version)}<br><span class="body-m variant" id="update-status">L'app controlla da sola se ci sono aggiornamenti</span></span>
         <button class="btn tonal" id="check-update">Controlla</button></div>
     </section>` : ''}
+    <a class="card link-card state" href="#/feedback">${icon('chat')}<span><strong>Invia un feedback</strong><br><span class="body-m variant">Idee, problemi o commenti per chi ha creato Flash Now</span></span>${icon('chevron_right')}</a>
     <section class="card">
       <h2 class="title-l">Modalità avanzata</h2>
       <label class="setting-row"><span>Attiva la modalità avanzata<br><span class="body-m variant">Sincronizzazione dei punteggi con un repository GitHub tramite token</span></span><input class="switch" type="checkbox" id="advanced" ${adv ? 'checked' : ''}></label>

@@ -472,3 +472,11 @@ main {
 
 .setting-row.static { cursor: default; margin-top: 8px; }
 .icon.inline { font-size: 18px; vertical-align: -4px; color: var(--tertiary); }
+
+/* ---------- informazioni e feedback ---------- */
+.about .list { margin-top: 8px; }
+.about .item { background: var(--surface-container); }
+.feedback-text { min-height: 35vh; font-family: inherit; font-size: 16px; line-height: 24px; }
+.link-card { display: flex; align-items: center; gap: 16px; margin-top: 12px; color: var(--on-surface); text-decoration: none; }
+.link-card > span:not(.icon) { flex: 1; }
+.link-card > .icon:first-child { color: var(--primary); }

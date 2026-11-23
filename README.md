@@ -177,3 +177,8 @@ android/                    Android app (WebView wrapper around the site)
 FORMATO.md                  format specification
 CLAUDE.md                   instructions for the AI assistant
 ```
+
+## Author
+
+Flash Now was conceived and created by **Michele Castrucci**.
+Feedback and ideas: use the **Invia un feedback** (send feedback) page in the app (guide → Informazioni) or open an [issue](https://github.com/M1ke324/flash-now/issues).
